@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Nunito } from "next/font/google";
 import "./globals.css";
+import SuiProvider from "../providers/SuiProvider";
 
 const nunito = Nunito({
   variable: "--font-nunito",
@@ -9,8 +10,8 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "Safwah - Parenting & Health Companion",
-  description: "A sophisticated and playful parenting dashboard for tracking nutrition, sleep, growth, vaccines, and daily activities.",
+  title: "Safwah - Premium UAE Tourist VAT Refund Portal",
+  description: "Connect Sui Wallet, upload invoices to Walrus, bundle receipts, and receive instant tax-free VAT refunds in USDC on Sui.",
 };
 
 export default function RootLayout({
@@ -20,7 +21,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={nunito.variable}>
-      <body className={nunito.className}>{children}</body>
+      <body className={nunito.className}>
+        <SuiProvider>
+          {children}
+        </SuiProvider>
+      </body>
     </html>
   );
 }

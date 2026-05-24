@@ -4,444 +4,586 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 
 // Types
-type CategoryId = "nutrition" | "sleep" | "growth" | "vaccines" | "activity";
+type CategoryId = "overview" | "receipts" | "claims" | "nfts";
 
-interface FeedItem {
+interface Receipt {
+  id: string;
+  storeName: string;
+  amount: string;
+  vat: string;
+  date: string;
+  walrusUrl: string;
+  selectedForClaim: boolean;
+  claimed: boolean;
+}
+
+interface Claim {
   id: string;
   title: string;
-  subtitle: string;
-  emoji: string;
-  completed: boolean;
+  receiptCount: number;
+  totalVat: string;
+  payoutAmount: string;
+  status: "80% Paid (Exit Pending)" | "Fully Settled" | "Under Review";
+  nftMinted: boolean;
+  date: string;
 }
 
-interface Metrics {
-  metric1: string;
-  metric2: string;
+interface SuiNFT {
+  id: string;
+  title: string;
+  claimId: string;
+  vatRefunded: string;
+  imageUrl: string;
+  txnHash: string;
 }
-
-interface CategoryConfig {
-  id: CategoryId;
-  label: string;
-  emoji: string;
-  heroTitle: string;
-  heroDesc: string;
-  metric1Label: string;
-  metric2Label: string;
-  alertText: string;
-  defaultMetric1: string;
-  defaultMetric2: string;
-}
-
-// Category configuration
-const CATEGORIES: CategoryConfig[] = [
-  {
-    id: "nutrition",
-    label: "Nutrition",
-    emoji: "🥑",
-    heroTitle: "Avocado solid introduction",
-    heroDesc: "Rich in healthy fats and fiber. Introduce in small spoonfuls to monitor texture tolerance.",
-    metric1Label: "PORTION",
-    metric2Label: "TEXTURE",
-    alertText: "⚠️ Avoid honey or added sugar for baby food under 12 months.",
-    defaultMetric1: "150 ml",
-    defaultMetric2: "Puréed"
-  },
-  {
-    id: "sleep",
-    label: "Sleep",
-    emoji: "🌙",
-    heroTitle: "Leo's Nap Schedule",
-    heroDesc: " Leo is currently transitioning to a 2-nap routine. Maintain a 3-hour wake window before bed.",
-    metric1Label: "TOTAL SLEEP",
-    metric2Label: "NIGHT SLEEP",
-    alertText: "💡 Keep the nursery room temperature between 20-22°C (68-72°F) for safe sleep.",
-    defaultMetric1: "13.5 Hours",
-    defaultMetric2: "10.5 Hours"
-  },
-  {
-    id: "growth",
-    label: "Growth",
-    emoji: "📈",
-    heroTitle: "Development & Percentiles",
-    heroDesc: "Leo is tracking in the 75th percentile for height. Neck control and crawling support look strong.",
-    metric1Label: "WEIGHT",
-    metric2Label: "HEIGHT",
-    alertText: "⭐ Leo is starting to pull-to-stand. Anchor heavy dressers and tables.",
-    defaultMetric1: "8.4 kg",
-    defaultMetric2: "71.2 cm"
-  },
-  {
-    id: "vaccines",
-    label: "Vaccines",
-    emoji: "🛡️",
-    heroTitle: "Pediatric Immunizations",
-    heroDesc: "Leo completed his 6-month immunization series. Next checkup is scheduled for 9 months.",
-    metric1Label: "LAST DOSE",
-    metric2Label: "NEXT DUE",
-    alertText: "🩺 Mild fever up to 38.5°C is common post-vaccine. Apply a cool, damp cloth.",
-    defaultMetric1: "DTaP-HepB #3",
-    defaultMetric2: "Measles (9m)"
-  },
-  {
-    id: "activity",
-    label: "Activity",
-    emoji: "🎨",
-    heroTitle: "Sensory & Motor Skills",
-    heroDesc: "Focus on hand-eye coordination with blocks and sorting cups. Ensure daily tummy time.",
-    metric1Label: "SENSORY",
-    metric2Label: "OUTDOOR",
-    alertText: "🧸 Avoid toys with parts smaller than 3cm to prevent choking hazards.",
-    defaultMetric1: "45 Mins",
-    defaultMetric2: "30 Mins"
-  }
-];
 
 export default function Home() {
-  const [activeCategory, setActiveCategory] = useState<CategoryId>("nutrition");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<CategoryId>("overview");
   
-  // Category metrics state
-  const [metricsData, setMetricsData] = useState<Record<CategoryId, Metrics>>({
-    nutrition: { metric1: "150 ml", metric2: "Puréed" },
-    sleep: { metric1: "13.5 Hours", metric2: "10.5 Hours" },
-    growth: { metric1: "8.4 kg", metric2: "71.2 cm" },
-    vaccines: { metric1: "DTaP-HepB #3", metric2: "Measles (9m)" },
-    activity: { metric1: "45 Mins", metric2: "30 Mins" }
-  });
+  // Wallet state
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState("");
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
-  // Secondary Feed items state
-  const [feedItems, setFeedItems] = useState<Record<CategoryId, FeedItem[]>>({
-    nutrition: [
-      { id: "nut-1", title: "Morning Milk Feed", subtitle: "8:00 AM • Breastmilk (180ml)", emoji: "🍼", completed: true },
-      { id: "nut-2", title: "Avocado Mash Lunch", subtitle: "12:30 PM • Solid feeding test", emoji: "🥑", completed: false },
-      { id: "nut-3", title: "Water Hydration Check", subtitle: "4:00 PM • Small training cup", emoji: "💧", completed: false }
-    ],
-    sleep: [
-      { id: "slp-1", title: "Morning Nap (1.5h)", subtitle: "9:30 AM - 11:00 AM • Peaceful", emoji: "💤", completed: true },
-      { id: "slp-2", title: "Afternoon Nap (1.2h)", subtitle: "2:30 PM - 3:45 PM • Restless", emoji: "🛌", completed: true },
-      { id: "slp-3", title: "Wind-down Bedtime", subtitle: "7:30 PM • White noise active", emoji: "🌌", completed: false }
-    ],
-    growth: [
-      { id: "grw-1", title: "Length Measurement", subtitle: "Pediatric clinic records • 71.2 cm", emoji: "📏", completed: true },
-      { id: "grw-2", title: "Tummy Time Session", subtitle: "10:30 AM • 20 minutes active play", emoji: "👶", completed: true },
-      { id: "grw-3", title: "Weight Check-in", subtitle: "Home infant scale • 8.4 kg", emoji: "⚖️", completed: false }
-    ],
-    vaccines: [
-      { id: "vac-1", title: "DTaP-HepB-IPV #3", subtitle: "Administered on May 12 • Left thigh", emoji: "💉", completed: true },
-      { id: "vac-2", title: "Rotavirus Oral Dose 3", subtitle: "Administered on May 12 • Completed", emoji: "💧", completed: true },
-      { id: "vac-3", title: "Influenza Booster", subtitle: "Scheduled for early autumn booster", emoji: "🗓️", completed: false }
-    ],
-    activity: [
-      { id: "act-1", title: "Stroller Walk in Park", subtitle: "3:30 PM • 30 mins outdoors", emoji: "🌳", completed: true },
-      { id: "act-2", title: "Stacking Blocks Play", subtitle: "11:15 AM • Motor coordination", emoji: "🧱", completed: true },
-      { id: "act-3", title: "Mirror Self Recognition", subtitle: "6:00 PM • Cognitive recognition", emoji: "🪞", completed: false }
-    ]
-  });
+  // Tourist state
+  const [usdcBalance, setUsdcBalance] = useState("142.50");
+  const [suiBalance, setSuiBalance] = useState("45.2");
 
-  // Form states for Modal
-  const [formCategory, setFormCategory] = useState<CategoryId>("nutrition");
-  const [formTitle, setFormTitle] = useState("");
-  const [formMetric1, setFormMetric1] = useState("");
-  const [formMetric2, setFormMetric2] = useState("");
-  const [formNote, setFormNote] = useState("");
+  // Receipts State (Decentralized storage via Walrus)
+  const [receipts, setReceipts] = useState<Receipt[]>([
+    { id: "rec-1", storeName: "Apple Store, Dubai Mall", amount: "5,499.00 AED", vat: "274.95 AED", date: "2026-05-23", walrusUrl: "walrus://blob/q37s8f921a9x7zh1", selectedForClaim: true, claimed: false },
+    { id: "rec-2", storeName: "Chanel Boutique, Galleria", amount: "12,450.00 AED", vat: "622.50 AED", date: "2026-05-24", walrusUrl: "walrus://blob/m92la10f29zk38sw", selectedForClaim: false, claimed: false },
+    { id: "rec-3", storeName: "Emaar Entertainment", amount: "450.00 AED", vat: "22.50 AED", date: "2026-05-21", walrusUrl: "walrus://blob/k10w82lz71pa92sk", selectedForClaim: true, claimed: false }
+  ]);
+
+  // Claims State (80% instant / 20% airport gate split)
+  const [claims, setClaims] = useState<Claim[]>([
+    { id: "CLM-8902", title: "Mall Shopping Bundle", receiptCount: 2, totalVat: "148.20 USDC", payoutAmount: "118.56 USDC (80%)", status: "80% Paid (Exit Pending)", nftMinted: true, date: "2026-05-22" }
+  ]);
+
+  // Sui NFTs State
+  const [nfts, setNfts] = useState<SuiNFT[]>([
+    { id: "nft-1", title: "Safwah Refund #8902", claimId: "CLM-8902", vatRefunded: "148.20 USDC", imageUrl: "https://images.unsplash.com/photo-1642156878705-4c07c6f0ea99?q=80&w=250&auto=format&fit=crop", txnHash: "0x4b7f...e2a9" }
+  ]);
+
+  // Upload modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formStoreName, setFormStoreName] = useState("");
+  const [formAmount, setFormAmount] = useState("");
+  const [formVat, setFormVat] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll category active pill into view when switched
-  useEffect(() => {
-    const activeBtn = document.getElementById(`cat-btn-${activeCategory}`);
-    if (activeBtn && scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      const containerScrollLeft = container.scrollLeft;
-      const containerWidth = container.clientWidth;
-      const btnOffsetLeft = activeBtn.offsetLeft;
-      const btnWidth = activeBtn.clientWidth;
+  // Sui Connect simulator
+  const handleConnectWallet = (walletType: string) => {
+    setIsConnecting(true);
+    setShowConnectModal(false);
+    setTimeout(() => {
+      setWalletAddress("0x8c2a71f09b558de0291ba207f6e3c4a20b08f9de");
+      setWalletConnected(true);
+      setIsConnecting(false);
+    }, 1200);
+  };
 
-      // Centered snap scroll calculation
-      const targetScroll = btnOffsetLeft - (containerWidth / 2) + (btnWidth / 2);
-      container.scrollTo({
-        left: targetScroll,
-        behavior: "smooth"
-      });
+  const handleDisconnect = () => {
+    setWalletConnected(false);
+    setWalletAddress("");
+    setShowWalletMenu(false);
+  };
+
+  const toggleReceiptSelect = (receiptId: string) => {
+    setReceipts(prev => prev.map(rec => 
+      rec.id === receiptId ? { ...rec, selectedForClaim: !rec.selectedForClaim } : rec
+    ));
+  };
+
+  // Submit claim handler (Bundles selected receipts)
+  const handleSubmitClaim = () => {
+    if (!walletConnected) {
+      alert("Please connect your Sui Wallet first!");
+      return;
     }
-  }, [activeCategory]);
+    const selected = receipts.filter(r => r.selectedForClaim && !r.claimed);
+    if (selected.length === 0) {
+      alert("Select at least one receipt to bundle into a claim.");
+      return;
+    }
 
-  const toggleFeedItem = (categoryId: CategoryId, itemId: string) => {
-    setFeedItems(prev => ({
-      ...prev,
-      [categoryId]: prev[categoryId].map(item => 
-        item.id === itemId ? { ...item, completed: !item.completed } : item
-      )
-    }));
-  };
+    const totalVatAED = selected.reduce((sum, r) => sum + parseFloat(r.vat), 0);
+    // Convert AED to USDC (roughly 1 USDC = 3.67 AED)
+    const totalVatUSDC = (totalVatAED / 3.67).toFixed(2);
+    const instantPayout = (parseFloat(totalVatUSDC) * 0.8).toFixed(2);
 
-  const handleOpenModal = () => {
-    setFormCategory(activeCategory);
-    setFormTitle("");
-    
-    // Set placeholder metrics to correspond with category
-    const currentCat = CATEGORIES.find(c => c.id === activeCategory);
-    setFormMetric1(currentCat?.defaultMetric1 || "");
-    setFormMetric2(currentCat?.defaultMetric2 || "");
-    setFormNote("");
-    setIsModalOpen(true);
-  };
-
-  // Switch placeholder values dynamically when changing category inside form
-  const handleFormCategoryChange = (catId: CategoryId) => {
-    setFormCategory(catId);
-    const selectedCat = CATEGORIES.find(c => c.id === catId);
-    setFormMetric1(selectedCat?.defaultMetric1 || "");
-    setFormMetric2(selectedCat?.defaultMetric2 || "");
-  };
-
-  const handleAddLog = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formTitle.trim()) return;
-
-    // 1. Create new feed item
-    const currentCat = CATEGORIES.find(c => c.id === formCategory);
-    const newFeedItem: FeedItem = {
-      id: `${formCategory}-${Date.now()}`,
-      title: formTitle,
-      subtitle: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ${formNote || "Manual entry"}`,
-      emoji: currentCat?.emoji || "📝",
-      completed: false
+    const newClaimId = `CLM-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newClaim: Claim = {
+      id: newClaimId,
+      title: selected.length === 1 ? `${selected[0].storeName} Claim` : `Bundle of ${selected.length} Receipts`,
+      receiptCount: selected.length,
+      totalVat: `${totalVatUSDC} USDC`,
+      payoutAmount: `${instantPayout} USDC (80%)`,
+      status: "80% Paid (Exit Pending)",
+      nftMinted: false,
+      date: new Date().toISOString().split('T')[0]
     };
 
-    // 2. Append new feed item to target category
-    setFeedItems(prev => ({
-      ...prev,
-      [formCategory]: [newFeedItem, ...prev[formCategory]]
-    }));
-
-    // 3. Update main metrics for that category
-    if (formMetric1.trim() || formMetric2.trim()) {
-      setMetricsData(prev => ({
-        ...prev,
-        [formCategory]: {
-          metric1: formMetric1.trim() || prev[formCategory].metric1,
-          metric2: formMetric2.trim() || prev[formCategory].metric2
-        }
-      }));
-    }
-
-    // 4. Close modal and set active view to logged category
-    setIsModalOpen(false);
-    setActiveCategory(formCategory);
+    // Update States
+    setClaims(prev => [newClaim, ...prev]);
+    setReceipts(prev => prev.map(rec => 
+      rec.selectedForClaim ? { ...rec, claimed: true, selectedForClaim: false } : rec
+    ));
+    setUsdcBalance(prev => (parseFloat(prev) + parseFloat(instantPayout)).toFixed(2));
+    
+    // Switch to claims list
+    setActiveCategory("claims");
+    alert(`Refund claim ${newClaimId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your Sui Wallet on-chain.\n\n20% will be unlocked at airport exit inspection!`);
   };
 
-  const currentCategoryConfig = CATEGORIES.find(c => c.id === activeCategory)!;
-  const currentMetrics = metricsData[activeCategory];
-  const currentFeed = feedItems[activeCategory];
+  // Mint Refund proof NFT on Sui
+  const handleMintNFT = (claimId: string) => {
+    if (!walletConnected) {
+      alert("Please connect your Sui Wallet first!");
+      return;
+    }
+    const claim = claims.find(c => c.id === claimId);
+    if (!claim) return;
 
-  // SVG Helper components for Bento Cards
-  const getBentoSvg = (categoryId: CategoryId, metricNum: 1 | 2) => {
-    if (categoryId === "nutrition") {
-      return metricNum === 1 ? (
-        // Portion Icon (cup)
-        <svg viewBox="0 0 24 24"><path d="M17 8h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2"/><path d="M5 8h12v10a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V8z"/></svg>
-      ) : (
-        // Texture Icon (spoon/fork)
-        <svg viewBox="0 0 24 24"><path d="M18 8h-6a4 4 0 0 0-4 4v8"/><path d="M6 2v6a3 3 0 0 0 6 0V2"/></svg>
-      );
-    }
-    if (categoryId === "sleep") {
-      return metricNum === 1 ? (
-        // Alarm clock
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="M19 3l3 3"/></svg>
-      ) : (
-        // Moon
-        <svg viewBox="0 0 24 24"><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-      );
-    }
-    if (categoryId === "growth") {
-      return metricNum === 1 ? (
-        // Weight Scale
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 12V6"/><path d="M12 12l3 3"/></svg>
-      ) : (
-        // Ruler / Height
-        <svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/><path d="M19 7h-4M19 11h-4M19 15h-4M19 19h-4M5 7h4M5 11h4M5 15h4M5 19h4"/></svg>
-      );
-    }
-    if (categoryId === "vaccines") {
-      return metricNum === 1 ? (
-        // Syringe / Medicine
-        <svg viewBox="0 0 24 24"><path d="m18 2 4 4M13 7l4 4M9 11l4 4M5 15l4 4M2 22l3-3M19 5l-8.5 8.5M5.5 18.5 7 17"/></svg>
-      ) : (
-        // Calendar
-        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      );
-    }
-    // Activity
-    return metricNum === 1 ? (
-      // Sensory blocks
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-    ) : (
-      // Tree / Outdoor
-      <svg viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z"/><path d="M12 10v12"/></svg>
-    );
+    const newNFT: SuiNFT = {
+      id: `nft-${Date.now()}`,
+      title: `Safwah Proof #${claimId.split('-')[1] || "NFT"}`,
+      claimId: claimId,
+      vatRefunded: claim.totalVat,
+      imageUrl: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=250&auto=format&fit=crop",
+      txnHash: `0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)}`
+    };
+
+    setNfts(prev => [newNFT, ...prev]);
+    setClaims(prev => prev.map(c => c.id === claimId ? { ...c, nftMinted: true } : c));
+    alert(`Proof of Refund NFT successfully minted on Sui!\nTransaction Hash: ${newNFT.txnHash}`);
+  };
+
+  // Upload receipt (Walrus storage mock + AI scan)
+  const handleUploadReceipt = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formStoreName || !formAmount) return;
+
+    setIsUploading(true);
+    setTimeout(() => {
+      const calculatedVat = (parseFloat(formAmount.replace(/,/g, '')) * 0.05).toFixed(2); // 5% VAT UAE
+      const mockHash = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+      const newRec: Receipt = {
+        id: `rec-${Date.now()}`,
+        storeName: formStoreName,
+        amount: `${parseFloat(formAmount).toLocaleString()} AED`,
+        vat: `${calculatedVat} AED`,
+        date: new Date().toISOString().split('T')[0],
+        walrusUrl: `walrus://blob/${mockHash}`,
+        selectedForClaim: true,
+        claimed: false
+      };
+
+      setReceipts(prev => [newRec, ...prev]);
+      setIsUploading(false);
+      setIsModalOpen(false);
+      setActiveCategory("receipts");
+      alert(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus)!`);
+    }, 1800);
   };
 
   return (
     <main className="phone-frame">
-      {/* 1. Header Section */}
+      {/* Header section with wallet connection */}
       <header className="header">
         <div className="header-left">
-          <span className="header-greeting-lbl">DAILY VITAL RECORD</span>
-          <h1 className="header-title-name">Hi, Olivia 👋</h1>
+          <span className="header-greeting-lbl">SAFWAH TOURIST APP</span>
+          <h1 className="header-title-name">Sui VAT Refund</h1>
         </div>
+        
         <div className="header-right">
-          <div className="profile-img-container">
-            <Image
-              src="/profile.png"
-              alt="Parent Profile"
-              fill
-              className="profile-img"
-              priority
-            />
-          </div>
-          <div className="notification-badge" />
+          {walletConnected ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+              <button 
+                className="btn-primary" 
+                style={{ padding: "8px 16px", borderRadius: "16px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+                onClick={() => setShowWalletMenu(!showWalletMenu)}
+              >
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#10B981" }}></span>
+                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+              </button>
+              {showWalletMenu && (
+                <div style={{ position: "absolute", top: "45px", right: "0", backgroundColor: "#1a1a1a", border: "1px solid rgba(212, 175, 55, 0.3)", borderRadius: "12px", zIndex: 1000, padding: "8px", width: "160px" }}>
+                  <div style={{ fontSize: "10px", color: "var(--color-sage)", padding: "4px 8px" }}>BALANCES</div>
+                  <div style={{ fontSize: "12px", fontWeight: "bold", padding: "2px 8px", color: "#fff" }}>{usdcBalance} USDC</div>
+                  <div style={{ fontSize: "12px", padding: "2px 8px", color: "var(--color-sage)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{suiBalance} SUI</div>
+                  <button 
+                    onClick={handleDisconnect}
+                    style={{ background: "none", border: "none", color: "#EF4444", fontSize: "12px", width: "100%", textAlign: "left", padding: "8px", cursor: "pointer", fontWeight: "bold" }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button 
+              className="btn-primary"
+              style={{ padding: "10px 18px", borderRadius: "20px", fontSize: "12px" }}
+              onClick={() => setShowConnectModal(true)}
+            >
+              {isConnecting ? "Connecting..." : "Connect Wallet"}
+            </button>
+          )}
         </div>
       </header>
 
-      {/* 2. Horizontal Scroll Category Selector */}
-      <section 
-        className="category-scroll-container" 
-        ref={scrollContainerRef}
-      >
-        {CATEGORIES.map((category) => {
-          const isActive = activeCategory === category.id;
-          return (
-            <div 
-              key={category.id} 
-              className="category-btn-wrapper"
-              id={`cat-btn-${category.id}`}
-            >
-              {isActive ? (
-                <button 
-                  className="category-btn-active"
-                  onClick={() => setActiveCategory(category.id)}
-                >
-                  <div className="active-circle">{category.emoji}</div>
-                  <span className="active-label">{category.label}</span>
-                </button>
-              ) : (
-                <button 
-                  className="category-btn-inactive"
-                  onClick={() => setActiveCategory(category.id)}
-                >
-                  {category.emoji}
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </section>
-
-      {/* 3. Hero Feature Card (simulating view transitions with a custom key trigger) */}
-      <section 
-        key={activeCategory} 
-        className="hero-card fade-transition"
-      >
-        <div className="decorative-blob" />
-        
-        <div className="hero-header">
-          <div className="hero-icon-holder">
-            <span>{currentCategoryConfig.emoji}</span>
-          </div>
-          <div className="hero-title-area">
-            <span className="label-caps">LATEST HIGHLIGHT</span>
-            <h2>{currentCategoryConfig.heroTitle}</h2>
-          </div>
-        </div>
-
-        <p className="hero-card-desc">
-          {currentCategoryConfig.heroDesc}
-        </p>
-
-        {/* 4. Bento Metric Cards */}
-        <div className="bento-grid">
-          {/* Card 1 */}
-          <div className="bento-metric-card">
-            <span className="bento-metric-label">{currentCategoryConfig.metric1Label}</span>
-            <div className="bento-content">
-              <div className="bento-icon-circle">
-                {getBentoSvg(activeCategory, 1)}
-              </div>
-              <span className="bento-value">{currentMetrics.metric1}</span>
-            </div>
-          </div>
-
-          {/* Card 2 */}
-          <div className="bento-metric-card">
-            <span className="bento-metric-label">{currentCategoryConfig.metric2Label}</span>
-            <div className="bento-content">
-              <div className="bento-icon-circle">
-                {getBentoSvg(activeCategory, 2)}
-              </div>
-              <span className="bento-value">{currentMetrics.metric2}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Info/Alert Bar */}
-        <div className="hero-alert-box">
-          <div className="hero-alert-text">
-            {currentCategoryConfig.alertText}
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Secondary Feed Items */}
-      <section 
-        key={`feed-${activeCategory}`} 
-        className="feed-section fade-transition"
-      >
-        <div className="feed-header">
-          <span className="label-caps">DAILY ACTIVITIES</span>
-          <span className="label-caps" style={{ color: "var(--color-charcoal)", fontWeight: 800 }}>
-            {currentFeed.filter(f => f.completed).length}/{currentFeed.length} DONE
-          </span>
-        </div>
-
-        {currentFeed.map((item) => (
-          <div 
-            key={item.id} 
-            className={`feed-card ${item.completed ? "completed" : ""}`}
-          >
-            <div className="feed-card-left">
-              <div className="feed-icon-container">
-                {item.emoji}
-              </div>
-              <div className="feed-text-area">
-                <span className="feed-title">{item.title}</span>
-                <span className="feed-subtitle">{item.subtitle}</span>
-              </div>
-            </div>
-
-            {/* Trailing checkmark button */}
-            <button 
-              className={`checkbox-btn ${item.completed ? "checked" : ""}`}
-              onClick={() => toggleFeedItem(activeCategory, item.id)}
-              aria-label="Mark task completed"
-            >
-              <svg viewBox="0 0 24 24">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+      {/* Category selector */}
+      <section className="category-scroll-container" ref={scrollContainerRef}>
+        <div className="category-btn-wrapper" id="cat-btn-overview">
+          {activeCategory === "overview" ? (
+            <button className="category-btn-active" onClick={() => setActiveCategory("overview")}>
+              <div className="active-circle">📊</div>
+              <span className="active-label">Overview</span>
             </button>
-          </div>
-        ))}
+          ) : (
+            <button className="category-btn-inactive" onClick={() => setActiveCategory("overview")}>📊</button>
+          )}
+        </div>
+
+        <div className="category-btn-wrapper" id="cat-btn-receipts">
+          {activeCategory === "receipts" ? (
+            <button className="category-btn-active" onClick={() => setActiveCategory("receipts")}>
+              <div className="active-circle">📄</div>
+              <span className="active-label">Receipts</span>
+            </button>
+          ) : (
+            <button className="category-btn-inactive" onClick={() => setActiveCategory("receipts")}>📄</button>
+          )}
+        </div>
+
+        <div className="category-btn-wrapper" id="cat-btn-claims">
+          {activeCategory === "claims" ? (
+            <button className="category-btn-active" onClick={() => setActiveCategory("claims")}>
+              <div className="active-circle">💸</div>
+              <span className="active-label">Claims</span>
+            </button>
+          ) : (
+            <button className="category-btn-inactive" onClick={() => setActiveCategory("claims")}>💸</button>
+          )}
+        </div>
+
+        <div className="category-btn-wrapper" id="cat-btn-nfts">
+          {activeCategory === "nfts" ? (
+            <button className="category-btn-active" onClick={() => setActiveCategory("nfts")}>
+              <div className="active-circle">🛡️</div>
+              <span className="active-label">Sui NFTs</span>
+            </button>
+          ) : (
+            <button className="category-btn-inactive" onClick={() => setActiveCategory("nfts")}>🛡️</button>
+          )}
+        </div>
       </section>
 
-      {/* 6. Floating Bottom Navigation Bar */}
+      {/* Main card panel - simulates view transition */}
+      <section key={activeCategory} className="hero-card fade-transition">
+        <div className="decorative-blob" />
+
+        {/* Overview Tab Content */}
+        {activeCategory === "overview" && (
+          <>
+            <div className="hero-header">
+              <div className="hero-icon-holder">
+                <span>💸</span>
+              </div>
+              <div className="hero-title-area">
+                <span className="label-caps">ACTIVE RECLAIM VITAL</span>
+                <h2>Dubai Mall Shopping Claim</h2>
+              </div>
+            </div>
+            <p className="hero-card-desc">
+              Your claim is processed! 80% split has been paid. Verify exit at airport customs to claim the remaining 20%.
+            </p>
+            <div className="bento-grid">
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">CLAIM ID</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </div>
+                  <span className="bento-value">CLM-8902</span>
+                </div>
+              </div>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">REFUND DUE</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </div>
+                  <span className="bento-value">148.20 USDC</span>
+                </div>
+              </div>
+            </div>
+            <div className="hero-alert-box">
+              <div className="hero-alert-text">
+                ✈️ Scan your Claim QR code at airport exit validation to receive the final 20% (29.64 USDC).
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Receipts Tab Content */}
+        {activeCategory === "receipts" && (
+          <>
+            <div className="hero-header">
+              <div className="hero-icon-holder">
+                <span>📦</span>
+              </div>
+              <div className="hero-title-area">
+                <span className="label-caps">DECENTRALIZED STORAGE</span>
+                <h2>Walrus Permanent Blobs</h2>
+              </div>
+            </div>
+            <p className="hero-card-desc">
+              Receipt files are compressed and uploaded on Walrus for secure, decentralized government verification.
+            </p>
+            <div className="bento-grid">
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">TOTAL RECEIPTS</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg>
+                  </div>
+                  <span className="bento-value">{receipts.length} Logs</span>
+                </div>
+              </div>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">UNCLAIMED VAT</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </div>
+                  <span className="bento-value">
+                    {(receipts.filter(r => !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / 3.67).toFixed(2)} USDC
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="hero-alert-box">
+              <div className="hero-alert-text">
+                💡 Check receipts below and click "Submit Tax Refund Claim" in the Claims tab to process.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Claims Tab Content */}
+        {activeCategory === "claims" && (
+          <>
+            <div className="hero-header">
+              <div className="hero-icon-holder">
+                <span>🔄</span>
+              </div>
+              <div className="hero-title-area">
+                <span className="label-caps">USDC PAYOUT MODEL</span>
+                <h2>80/20 Split Funding</h2>
+              </div>
+            </div>
+            <p className="hero-card-desc">
+              Get 80% of your VAT refund paid instantly in USDC to SUI wallet. The remaining 20% pays out immediately upon scanning at airport gate.
+            </p>
+            <div className="bento-grid">
+              <div className="bento-metric-card" style={{ gridColumn: "span 2" }}>
+                <span className="bento-metric-label">SELECTED FOR NEW CLAIM</span>
+                <div className="bento-content" style={{ justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div className="bento-icon-circle">
+                      <svg viewBox="0 0 24 24"><path d="m18 2 4 4M13 7l4 4M9 11l4 4"/></svg>
+                    </div>
+                    <span className="bento-value" style={{ fontSize: "16px" }}>
+                      {receipts.filter(r => r.selectedForClaim && !r.claimed).length} Receipts Selected
+                    </span>
+                  </div>
+                  <span className="bento-value" style={{ color: "var(--color-cyber-gold)" }}>
+                    {(receipts.filter(r => r.selectedForClaim && !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / 3.67).toFixed(2)} USDC
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button 
+              className="btn-primary" 
+              style={{ width: "100%", padding: "16px" }}
+              onClick={handleSubmitClaim}
+              disabled={receipts.filter(r => r.selectedForClaim && !r.claimed).length === 0}
+            >
+              Bundle & Submit Claim
+            </button>
+          </>
+        )}
+
+        {/* NFTs Tab Content */}
+        {activeCategory === "nfts" && (
+          <>
+            <div className="hero-header">
+              <div className="hero-icon-holder">
+                <span>🛡️</span>
+              </div>
+              <div className="hero-title-area">
+                <span className="label-caps">ON-CHAIN PROOF</span>
+                <h2>Sui Tax-Free NFTs</h2>
+              </div>
+            </div>
+            <p className="hero-card-desc">
+              Each approved claim generates a unique soulbound validation NFT on Sui containing encrypted hashes of items bought and verification stamps.
+            </p>
+            <div className="bento-grid">
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">NFT COLLECTION</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 12V6"/></svg>
+                  </div>
+                  <span className="bento-value">{nfts.length} Minted</span>
+                </div>
+              </div>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">SECURE GAS</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><path d="M12 2v2M12 20v2"/></svg>
+                  </div>
+                  <span className="bento-value">0.02 SUI</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Secondary Feed items lists depending on active category */}
+      <section key={`feed-${activeCategory}`} className="feed-section fade-transition">
+        {activeCategory === "overview" && (
+          <>
+            <div className="feed-header">
+              <span className="label-caps">CLAIM HISTORY</span>
+            </div>
+            {claims.map((claim) => (
+              <div key={claim.id} className="feed-card">
+                <div className="feed-card-left">
+                  <div className="feed-icon-container">🧾</div>
+                  <div className="feed-text-area">
+                    <span className="feed-title">{claim.title}</span>
+                    <span className="feed-subtitle">{claim.date} • {claim.receiptCount} Receipts • {claim.totalVat}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
+                  <span className="label-caps" style={{ color: claim.status.startsWith("Fully") ? "#10B981" : "var(--color-cyber-gold)" }}>{claim.status}</span>
+                  {!claim.nftMinted && (
+                    <button 
+                      className="btn-primary" 
+                      style={{ fontSize: "10px", padding: "6px 12px", borderRadius: "10px" }}
+                      onClick={() => handleMintNFT(claim.id)}
+                    >
+                      Mint NFT Proof
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {activeCategory === "receipts" && (
+          <>
+            <div className="feed-header">
+              <span className="label-caps">SCANNED RECEIPTS</span>
+              <span className="label-caps" style={{ color: "var(--color-charcoal)", fontWeight: 800 }}>
+                {receipts.filter(r => r.claimed).length} CLAIMED
+              </span>
+            </div>
+            {receipts.map((rec) => (
+              <div key={rec.id} className={`feed-card ${rec.claimed ? "completed" : ""}`}>
+                <div className="feed-card-left">
+                  <div className="feed-icon-container">{rec.emoji || "🛍️"}</div>
+                  <div className="feed-text-area">
+                    <span className="feed-title">{rec.storeName}</span>
+                    <span className="feed-subtitle" style={{ fontSize: "10px" }}>{rec.walrusUrl.slice(0, 20)}...</span>
+                    <span className="feed-subtitle">{rec.date} • {rec.amount} (VAT: {rec.vat})</span>
+                  </div>
+                </div>
+                {!rec.claimed && (
+                  <button 
+                    className={`checkbox-btn ${rec.selectedForClaim ? "checked" : ""}`}
+                    onClick={() => toggleReceiptSelect(rec.id)}
+                  >
+                    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+                  </button>
+                )}
+                {rec.claimed && (
+                  <span className="label-caps" style={{ color: "#10B981" }}>Claimed</span>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        {activeCategory === "claims" && (
+          <>
+            <div className="feed-header">
+              <span className="label-caps">PENDING RECEIPTS BUNDLE</span>
+            </div>
+            {receipts.filter(r => !r.claimed).map((rec) => (
+              <div key={rec.id} className="feed-card">
+                <div className="feed-card-left">
+                  <div className="feed-icon-container">🛍️</div>
+                  <div className="feed-text-area">
+                    <span className="feed-title">{rec.storeName}</span>
+                    <span className="feed-subtitle">{rec.amount} (VAT: {rec.vat})</span>
+                  </div>
+                </div>
+                <button 
+                  className={`checkbox-btn ${rec.selectedForClaim ? "checked" : ""}`}
+                  onClick={() => toggleReceiptSelect(rec.id)}
+                >
+                  <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {activeCategory === "nfts" && (
+          <>
+            <div className="feed-header">
+              <span className="label-caps">MINTED PROOF NFTS</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              {nfts.map((nft) => (
+                <div key={nft.id} className="feed-card" style={{ flexDirection: "column", alignItems: "flex-start", gap: "12px", padding: "16px" }}>
+                  <div style={{ position: "relative", width: "100%", height: "120px", borderRadius: "12px", overflow: "hidden", backgroundColor: "#022C22", border: "1px solid rgba(212, 175, 55, 0.2)" }}>
+                    <div style={{ position: "absolute", top: "10px", left: "10px", fontSize: "10px", background: "rgba(0,0,0,0.6)", padding: "4px 8px", borderRadius: "8px", border: "1px solid rgba(212,175,55,0.3)" }}>
+                      SUI NFT
+                    </div>
+                    <div style={{ position: "absolute", bottom: "10px", left: "10px", right: "10px", display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                      <span style={{ fontSize: "10px", color: "var(--color-sage)" }}>REFUND</span>
+                      <span style={{ fontSize: "14px", fontWeight: "bold", color: "var(--color-cyber-gold)" }}>{nft.vatRefunded}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%" }}>
+                    <span style={{ fontSize: "14px", fontWeight: "bold", color: "#fff" }}>{nft.title}</span>
+                    <span style={{ fontSize: "10px", color: "var(--color-sage)" }}>Tx: {nft.txnHash}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Floating navigation bar */}
       <div className="nav-wrapper">
         <nav className="nav-pill-bar">
-          {/* Dashboard/Home Icon */}
-          <button 
-            className={`nav-item-btn active`}
-            aria-label="Dashboard Tab"
-          >
+          <button className={`nav-item-btn ${activeCategory === "overview" ? "active" : "inactive"}`} onClick={() => setActiveCategory("overview")}>
             <svg viewBox="0 0 24 24" stroke="currentColor">
               <rect x="3" y="3" width="7" height="9" rx="1" />
               <rect x="14" y="3" width="7" height="5" rx="1" />
@@ -450,13 +592,9 @@ export default function Home() {
             </svg>
           </button>
 
-          {/* Floating center Red Action Button with cutout effect */}
+          {/* FAB: Upload Receipt */}
           <div className="fab-container">
-            <button 
-              className={`fab-btn ${isModalOpen ? "open" : ""}`}
-              onClick={handleOpenModal}
-              aria-label="Add Log"
-            >
+            <button className={`fab-btn ${isModalOpen ? "open" : ""}`} onClick={() => setIsModalOpen(true)}>
               <svg viewBox="0 0 24 24" stroke="currentColor">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
@@ -464,105 +602,74 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Health/Stats Icon */}
-          <button 
-            className="nav-item-btn inactive"
-            onClick={() => {
-              // Interactive category change example as demo
-              const list: CategoryId[] = ["nutrition", "sleep", "growth", "vaccines", "activity"];
-              const currentIndex = list.indexOf(activeCategory);
-              const nextIndex = (currentIndex + 1) % list.length;
-              setActiveCategory(list[nextIndex]);
-            }}
-            aria-label="Quick Cycle Categories"
-          >
+          <button className={`nav-item-btn ${activeCategory === "receipts" ? "active" : "inactive"}`} onClick={() => setActiveCategory("receipts")}>
             <svg viewBox="0 0 24 24" stroke="currentColor">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
           </button>
         </nav>
       </div>
 
-      {/* 7. Add Log Modal Overlay */}
+      {/* Connect Wallet Modal */}
+      {showConnectModal && (
+        <div className="modal-overlay" onClick={() => setShowConnectModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="label-caps" style={{ color: "var(--color-cyber-gold)" }}>Connect Sui Wallet</span>
+              <button onClick={() => setShowConnectModal(false)} style={{ background: "none", border: "none", fontSize: "24px", color: "var(--color-sage)", cursor: "pointer" }}>&times;</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <button className="btn-secondary" style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "flex-start", padding: "16px" }} onClick={() => handleConnectWallet("Suiet")}>
+                <span style={{ fontSize: "20px" }}>🌐</span> Suiet Wallet
+              </button>
+              <button className="btn-secondary" style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "flex-start", padding: "16px" }} onClick={() => handleConnectWallet("Mysten")}>
+                <span style={{ fontSize: "20px" }}>💧</span> Sui Wallet
+              </button>
+              <button className="btn-secondary" style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "flex-start", padding: "16px" }} onClick={() => handleConnectWallet("Martian")}>
+                <span style={{ fontSize: "20px" }}>👽</span> Martian Wallet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload/AI Scan Receipt Modal */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="label-caps" style={{ color: "var(--color-vibrant-red)", fontSize: "12px" }}>LOG NEW RECORD</span>
-              <button 
-                onClick={() => setIsModalOpen(false)} 
-                style={{ background: "none", border: "none", fontSize: "24px", color: "var(--color-sage)", cursor: "pointer" }}
-              >
-                &times;
-              </button>
+              <span className="label-caps" style={{ color: "var(--color-cyber-gold)", fontSize: "12px" }}>AI SCAN SHOPPING RECEIPT</span>
+              <button onClick={() => setIsModalOpen(false)} style={{ background: "none", border: "none", fontSize: "24px", color: "var(--color-sage)", cursor: "pointer" }}>&times;</button>
             </div>
             
-            <form onSubmit={handleAddLog} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div className="form-group">
-                <label htmlFor="log-category">Category</label>
-                <select 
-                  id="log-category"
-                  className="form-input form-select"
-                  value={formCategory}
-                  onChange={(e) => handleFormCategoryChange(e.target.value as CategoryId)}
-                >
-                  <option value="nutrition">🥑 Nutrition (Feeding, solids)</option>
-                  <option value="sleep">🌙 Sleep (Naps, bedtimes)</option>
-                  <option value="growth">📈 Growth (Weight, length)</option>
-                  <option value="vaccines">🛡️ Health & Vaccines</option>
-                  <option value="activity">🎨 Sensory Activities</option>
-                </select>
+            <form onSubmit={handleUploadReceipt} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div className="form-group" style={{ border: "2px dashed rgba(212, 175, 55, 0.2)", borderRadius: "16px", padding: "24px", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", backgroundColor: "rgba(0,0,0,0.2)" }}>
+                <span style={{ fontSize: "32px" }}>📸</span>
+                <span style={{ fontSize: "14px", fontWeight: "bold", color: "#fff" }}>Upload Invoice Photo / PDF</span>
+                <span style={{ fontSize: "10px", color: "var(--color-sage)" }}>Max 5MB • Automatically scans & hashes to Walrus</span>
               </div>
 
               <div className="form-group">
-                <label htmlFor="log-title">Log Title / Action</label>
+                <label>Store Name (Mock AI Extracted)</label>
                 <input 
-                  id="log-title"
                   type="text" 
                   className="form-input" 
-                  placeholder="e.g. Afternoon formula feeding, Nap 2, Weight update" 
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder="e.g. Apple Store, Nike, Chanel" 
+                  value={formStoreName}
+                  onChange={(e) => setFormStoreName(e.target.value)}
                   required
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label htmlFor="log-metric1">
-                    {CATEGORIES.find(c => c.id === formCategory)?.metric1Label}
-                  </label>
-                  <input 
-                    id="log-metric1"
-                    type="text" 
-                    className="form-input" 
-                    value={formMetric1}
-                    onChange={(e) => setFormMetric1(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="log-metric2">
-                    {CATEGORIES.find(c => c.id === formCategory)?.metric2Label}
-                  </label>
-                  <input 
-                    id="log-metric2"
-                    type="text" 
-                    className="form-input" 
-                    value={formMetric2}
-                    onChange={(e) => setFormMetric2(e.target.value)}
-                  />
-                </div>
-              </div>
-
               <div className="form-group">
-                <label htmlFor="log-note">Additional Details / Notes</label>
+                <label>Total Invoice Value (AED)</label>
                 <input 
-                  id="log-note"
-                  type="text" 
+                  type="number" 
                   className="form-input" 
-                  placeholder="e.g. Drank all 180ml, fell asleep quickly, left leg administration" 
-                  value={formNote}
-                  onChange={(e) => setFormNote(e.target.value)}
+                  placeholder="e.g. 1500" 
+                  value={formAmount}
+                  onChange={(e) => setFormAmount(e.target.value)}
+                  required
                 />
               </div>
 
@@ -571,7 +678,7 @@ export default function Home() {
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
-                  Save Entry
+                  {isUploading ? "AI Scanning & Uploading..." : "Scan & Save to Walrus"}
                 </button>
               </div>
             </form>

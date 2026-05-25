@@ -2,8 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { useCurrentAccount } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient, useSuiClientQuery } from "@mysten/dapp-kit";
+import { Transaction } from "@mysten/sui/transactions";
 import WalletConnect from "../components/WalletConnect";
+import { uploadToWalrus } from "../lib/walrus";
+import { CONTRACTS } from "../lib/contracts";
+import { QRCodeSVG } from "qrcode.react";
+import { ClaimQRCode } from "../components/ClaimQRCode";
+import { WithdrawalModal } from "../components/WithdrawalModal";
+import { ClaimTracker } from "../components/ClaimTracker";
 
 // Types
 type CategoryId = "overview" | "receipts" | "claims" | "nfts";
@@ -47,12 +54,27 @@ export default function Home() {
   const currentAccount = useCurrentAccount();
   const walletConnected = !!currentAccount;
   const walletAddress = currentAccount?.address || "";
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const suiClient = useSuiClient();
 
-  // Tourist state
-  const [usdcBalance, setUsdcBalance] = useState("142.50");
-  const [suiBalance, setSuiBalance] = useState("45.2");
+  // Fetch real USDC balance
+  const { data: coinsData } = useSuiClientQuery('getCoins', {
+    owner: currentAccount?.address ?? '',
+    coinType: CONTRACTS.USDC_COIN_TYPE,
+  }, { enabled: !!currentAccount });
 
-  // Receipts State (Decentralized storage via Walrus)
+  const usdcBalanceVal = coinsData?.data
+    .reduce((sum, c) => sum + Number(c.balance), 0) ?? 0;
+  const usdcDisplay = (usdcBalanceVal / 1_000_000).toFixed(2);
+
+  // Fetch real SUI balance
+  const { data: suiBalanceData } = useSuiClientQuery('getBalance', {
+    owner: currentAccount?.address ?? '',
+  }, { enabled: !!currentAccount });
+
+  const suiBalanceVal = suiBalanceData ? Number(suiBalanceData.totalBalance) : 0;
+  const suiDisplay = (suiBalanceVal / 1_000_000_000).toFixed(2);
+
   const [receipts, setReceipts] = useState<Receipt[]>([
     { id: "rec-1", storeName: "Apple Store, Dubai Mall", amount: "5,499.00 AED", vat: "274.95 AED", date: "2026-05-23", walrusUrl: "walrus://blob/q37s8f921a9x7zh1", selectedForClaim: true, claimed: false },
     { id: "rec-2", storeName: "Chanel Boutique, Galleria", amount: "12,450.00 AED", vat: "622.50 AED", date: "2026-05-24", walrusUrl: "walrus://blob/m92la10f29zk38sw", selectedForClaim: false, claimed: false },
@@ -75,6 +97,21 @@ export default function Home() {
   const [formAmount, setFormAmount] = useState("");
   const [formVat, setFormVat] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedClaimForQr, setSelectedClaimForQr] = useState<Claim | null>(null);
+  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+
+  // Map selectedClaimForQr to ClaimQRCode component's expected props format
+  const qrClaimData = selectedClaimForQr ? {
+    objectId: selectedClaimForQr.id,
+    totalVat: Math.floor(parseFloat(selectedClaimForQr.totalVat) * 1_000_000) || 148200000,
+    receiptCount: selectedClaimForQr.receiptCount,
+    merchantNames: [selectedClaimForQr.title],
+    submittedAt: selectedClaimForQr.date + "T12:00:00Z",
+    status: selectedClaimForQr.status === "Fully Settled" ? 3 : 1,
+    instantPaid: Math.floor(parseFloat(selectedClaimForQr.payoutAmount) * 1_000_000) || 118560000,
+    finalAmount: Math.floor((parseFloat(selectedClaimForQr.totalVat) - parseFloat(selectedClaimForQr.payoutAmount)) * 1_000_000) || 29640000,
+  } : null;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -84,8 +121,31 @@ export default function Home() {
     ));
   };
 
-  // Submit claim handler (Bundles selected receipts)
-  const handleSubmitClaim = () => {
+  // Faucet handler
+  const handleGetTestUsdc = async () => {
+    if (!walletConnected) {
+      alert("Please connect your Sui Wallet first!");
+      return;
+    }
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${CONTRACTS.PACKAGE_ID}::usdc_mock::faucet`,
+        arguments: [
+          tx.object(CONTRACTS.USDC_MOCK_ADMIN_ID),
+          tx.pure.u64(100_000_000),   // 100 USDC (6 decimals)
+          tx.pure.address(currentAccount.address),
+        ],
+      });
+      const result = await signAndExecute({ transaction: tx });
+      alert(`100 Test USDC successfully minted!\nTransaction digest: ${result.digest}`);
+    } catch (err: any) {
+      alert(`Faucet call failed: ${err.message || err}`);
+    }
+  };
+
+  // Submit claim handler (Bundles selected receipts on-chain)
+  const handleSubmitClaim = async () => {
     if (!walletConnected) {
       alert("Please connect your Sui Wallet first!");
       return;
@@ -96,36 +156,106 @@ export default function Home() {
       return;
     }
 
-    const totalVatAED = selected.reduce((sum, r) => sum + parseFloat(r.vat), 0);
-    // Convert AED to USDC (roughly 1 USDC = 3.67 AED)
-    const totalVatUSDC = (totalVatAED / 3.67).toFixed(2);
-    const instantPayout = (parseFloat(totalVatUSDC) * 0.8).toFixed(2);
+    setIsSubmitting(true);
+    try {
+      const totalVatAED = selected.reduce((sum, r) => sum + parseFloat(r.vat), 0);
+      const totalVatUSDC = (totalVatAED / 3.67).toFixed(2);
+      const totalVatBaseUnits = Math.floor(parseFloat(totalVatUSDC) * 1_000_000); // base units
+      const instantPayout = (parseFloat(totalVatUSDC) * 0.8).toFixed(2);
 
-    const newClaimId = `CLM-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newClaim: Claim = {
-      id: newClaimId,
-      title: selected.length === 1 ? `${selected[0].storeName} Claim` : `Bundle of ${selected.length} Receipts`,
-      receiptCount: selected.length,
-      totalVat: `${totalVatUSDC} USDC`,
-      payoutAmount: `${instantPayout} USDC (80%)`,
-      status: "80% Paid (Exit Pending)",
-      nftMinted: false,
-      date: new Date().toISOString().split('T')[0]
-    };
+      // 1. Fetch user coins to cover the payment
+      const coins = await suiClient.getCoins({
+        owner: currentAccount.address,
+        coinType: CONTRACTS.USDC_COIN_TYPE,
+      });
 
-    // Update States
-    setClaims(prev => [newClaim, ...prev]);
-    setReceipts(prev => prev.map(rec => 
-      rec.selectedForClaim ? { ...rec, claimed: true, selectedForClaim: false } : rec
-    ));
-    setUsdcBalance(prev => (parseFloat(prev) + parseFloat(instantPayout)).toFixed(2));
-    
-    // Switch to claims list
-    setActiveCategory("claims");
-    alert(`Refund claim ${newClaimId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your Sui Wallet on-chain.\n\n20% will be unlocked at airport exit inspection!`);
+      if (coins.data.length === 0) {
+        throw new Error("No USDC balance. Click the 'Get Test USDC' button to get some test coins.");
+      }
+
+      // Calculate total available balance in coins
+      const totalAvailable = coins.data.reduce((sum, c) => sum + Number(c.balance), 0);
+      if (totalAvailable < totalVatBaseUnits) {
+        throw new Error(`Insufficient USDC balance. Required: ${(totalVatBaseUnits / 1_000_000).toFixed(2)} USDC, Available: ${(totalAvailable / 1_000_000).toFixed(2)} USDC.`);
+      }
+
+      const tx = new Transaction();
+      
+      // Merge coins if there are multiple coin objects
+      const primaryCoin = coins.data[0].coinObjectId;
+      if (coins.data.length > 1) {
+        tx.mergeCoins(
+          tx.object(primaryCoin),
+          coins.data.slice(1).map(c => tx.object(c.coinObjectId))
+        );
+      }
+
+      // Split exact VAT amount from primary coin
+      const [vatCoin] = tx.splitCoins(tx.object(primaryCoin), [totalVatBaseUnits]);
+
+      // Prepare claim arguments
+      const blobIds = selected.map(r => Array.from(new TextEncoder().encode(r.walrusUrl.replace("walrus://blob/", ""))));
+      const vatAmounts = selected.map(r => Math.floor((parseFloat(r.vat) / 3.67) * 1_000_000));
+      const merchantNames = selected.map(r => Array.from(new TextEncoder().encode(r.storeName)));
+      const totalPurchase = Math.floor(selected.reduce((sum, r) => sum + parseFloat(r.amount.replace(/,/g, '')) * 100, 0)); // AED cents
+      const newClaimId = `CLAIM-${Date.now()}`;
+      const claimNumber = Array.from(new TextEncoder().encode(newClaimId));
+
+      tx.moveCall({
+        target: `${CONTRACTS.PACKAGE_ID}::safwah::submit_claim`,
+        arguments: [
+          tx.object(CONTRACTS.ESCROW_ID),
+          vatCoin,
+          tx.pure.vector('vector<u8>', blobIds),
+          tx.pure.vector('u64', vatAmounts),
+          tx.pure.vector('vector<u8>', merchantNames),
+          tx.pure.u64(totalPurchase),
+          tx.pure.vector('u8', claimNumber),
+        ],
+      });
+
+      const result = await signAndExecute({ 
+        transaction: tx,
+      });
+
+      const txDetails = await suiClient.waitForTransaction({
+        digest: result.digest,
+        options: {
+          showObjectChanges: true,
+        }
+      });
+
+      const claimChange = txDetails.objectChanges?.find(
+        (oc: any) => oc.type === "created" && oc.objectType.includes("::safwah::VatClaim")
+      );
+      const claimObjectId = (claimChange as any)?.objectId || newClaimId;
+
+      const newClaim: Claim = {
+        id: claimObjectId,
+        title: selected.length === 1 ? `${selected[0].storeName} Claim` : `Bundle of ${selected.length} Receipts`,
+        receiptCount: selected.length,
+        totalVat: `${totalVatUSDC} USDC`,
+        payoutAmount: `${instantPayout} USDC (80%)`,
+        status: "80% Paid (Exit Pending)",
+        nftMinted: false,
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      setClaims(prev => [newClaim, ...prev]);
+      setReceipts(prev => prev.map(rec => 
+        rec.selectedForClaim ? { ...rec, claimed: true, selectedForClaim: false } : rec
+      ));
+
+      setActiveCategory("claims");
+      alert(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
+    } catch (err: any) {
+      alert(`Claim submission failed: ${err.message || err}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Mint Refund proof NFT on Sui
+  // Mint Refund proof NFT on Sui (mock UI updates, can call safwah_nft in v2 if needed)
   const handleMintNFT = (claimId: string) => {
     if (!walletConnected) {
       alert("Please connect your Sui Wallet first!");
@@ -148,32 +278,47 @@ export default function Home() {
     alert(`Proof of Refund NFT successfully minted on Sui!\nTransaction Hash: ${newNFT.txnHash}`);
   };
 
-  // Upload receipt (Walrus storage mock + AI scan)
-  const handleUploadReceipt = (e: React.FormEvent) => {
+  // Upload receipt (Walrus storage + AI scan)
+  const handleUploadReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formStoreName || !formAmount) return;
 
     setIsUploading(true);
-    setTimeout(() => {
+    try {
       const calculatedVat = (parseFloat(formAmount.replace(/,/g, '')) * 0.05).toFixed(2); // 5% VAT UAE
-      const mockHash = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+
+      // Create a mock Blob representation of receipt data to upload to Walrus
+      const receiptDataJson = JSON.stringify({
+        storeName: formStoreName,
+        amountAED: formAmount,
+        vatAED: calculatedVat,
+        timestamp: Date.now()
+      });
+      const blob = new Blob([receiptDataJson], { type: "application/json" });
+      
+      // Upload to real Walrus testnet nodes
+      const walrusResult = await uploadToWalrus(blob);
+
       const newRec: Receipt = {
         id: `rec-${Date.now()}`,
         storeName: formStoreName,
         amount: `${parseFloat(formAmount).toLocaleString()} AED`,
         vat: `${calculatedVat} AED`,
         date: new Date().toISOString().split('T')[0],
-        walrusUrl: `walrus://blob/${mockHash}`,
+        walrusUrl: `walrus://blob/${walrusResult.blobId}`,
         selectedForClaim: true,
         claimed: false
       };
 
       setReceipts(prev => [newRec, ...prev]);
-      setIsUploading(false);
       setIsModalOpen(false);
       setActiveCategory("receipts");
-      alert(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus)!`);
-    }, 1800);
+      alert(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus Blob: ${walrusResult.blobId.slice(0, 8)}...)!`);
+    } catch (err: any) {
+      alert(`Walrus upload failed: ${err.message || err}`);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -256,6 +401,50 @@ export default function Home() {
             <p className="hero-card-desc">
               Your claim is processed! 80% split has been paid. Verify exit at airport customs to claim the remaining 20%.
             </p>
+
+            {claims.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                <ClaimTracker claimObjectId={claims[0].id} />
+              </div>
+            )}
+            <div className="bento-grid" style={{ marginBottom: "12px" }}>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">USDC BALANCE</span>
+                <div className="bento-content" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <div className="bento-icon-circle">
+                      <span>💵</span>
+                    </div>
+                    <span className="bento-value">{walletConnected ? `${usdcDisplay} USDC` : "0.00 USDC"}</span>
+                  </div>
+                  {walletConnected && usdcBalanceVal > 0 && (
+                    <button 
+                      onClick={() => setIsWithdrawOpen(true)}
+                      style={{
+                        fontSize: "10px",
+                        background: "rgba(212,175,55,0.2)",
+                        color: "var(--color-cyber-gold)",
+                        border: "1px solid rgba(212,175,55,0.4)",
+                        padding: "4px 8px",
+                        borderRadius: "8px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">SUI BALANCE</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <span>💧</span>
+                  </div>
+                  <span className="bento-value">{walletConnected ? `${suiDisplay} SUI` : "0.00 SUI"}</span>
+                </div>
+              </div>
+            </div>
             <div className="bento-grid">
               <div className="bento-metric-card">
                 <span className="bento-metric-label">CLAIM ID</span>
@@ -276,6 +465,15 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            {walletConnected && (
+              <button 
+                className="btn-primary" 
+                style={{ width: "100%", padding: "14px", marginTop: "16px", background: "var(--color-cyber-gold-dark)", color: "var(--color-void-black)" }}
+                onClick={handleGetTestUsdc}
+              >
+                Get Test USDC (Faucet)
+              </button>
+            )}
             <div className="hero-alert-box">
               <div className="hero-alert-text">
                 ✈️ Scan your Claim QR code at airport exit validation to receive the final 20% (29.64 USDC).
@@ -420,15 +618,16 @@ export default function Home() {
               <span className="label-caps">CLAIM HISTORY</span>
             </div>
             {claims.map((claim) => (
-              <div key={claim.id} className="feed-card">
+              <div key={claim.id} className="feed-card" onClick={() => setSelectedClaimForQr(claim)} style={{ cursor: "pointer" }}>
                 <div className="feed-card-left">
                   <div className="feed-icon-container">🧾</div>
                   <div className="feed-text-area">
                     <span className="feed-title">{claim.title}</span>
+                    <span className="feed-subtitle" style={{ fontSize: "10px" }}>{claim.id.startsWith("CLAIM-") ? claim.id : claim.id.slice(0, 10) + "..." + claim.id.slice(-8)}</span>
                     <span className="feed-subtitle">{claim.date} • {claim.receiptCount} Receipts • {claim.totalVat}</span>
                   </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
                   <span className="label-caps" style={{ color: claim.status.startsWith("Fully") ? "#10B981" : "var(--color-cyber-gold)" }}>{claim.status}</span>
                   {!claim.nftMinted && (
                     <button 
@@ -616,6 +815,22 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Claim QR Modal */}
+      {selectedClaimForQr && qrClaimData && (
+        <ClaimQRCode
+          isOpen={!!selectedClaimForQr}
+          onClose={() => setSelectedClaimForQr(null)}
+          claim={qrClaimData}
+        />
+      )}
+
+      {/* Withdrawal Modal */}
+      <WithdrawalModal
+        isOpen={isWithdrawOpen}
+        onClose={() => setIsWithdrawOpen(false)}
+        availableBalance={usdcBalanceVal}
+      />
     </main>
   );
 }

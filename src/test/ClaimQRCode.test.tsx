@@ -1,16 +1,19 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ClaimQRCode } from '../components/ClaimQRCode';
+import { vi, describe, test, expect } from 'vitest';
 import '@testing-library/jest-dom';
 
 // Mock Sui kit and react-qr-code
-jest.mock('@mysten/dapp-kit', () => ({
+vi.mock('@mysten/dapp-kit', () => ({
   useCurrentAccount: () => ({ address: '0x1234567890123456789012345678901234567890' }),
 }));
 
-jest.mock('react-qr-code', () => {
-  return function MockQRCode() {
-    return <div data-testid="mock-qr-code" />;
+vi.mock('react-qr-code', () => {
+  return {
+    default: function MockQRCode() {
+      return <div data-testid="mock-qr-code" />;
+    }
   };
 });
 
@@ -27,7 +30,7 @@ describe('ClaimQRCode Component', () => {
   };
 
   test('renders claim details and QR code when open', () => {
-    const handleClose = jest.fn();
+    const handleClose = vi.fn();
     render(<ClaimQRCode isOpen={true} onClose={handleClose} claim={mockClaim} />);
 
     expect(screen.getByText('VAT Refund Claim')).toBeInTheDocument();
@@ -40,7 +43,7 @@ describe('ClaimQRCode Component', () => {
   });
 
   test('calls onClose when close button is clicked', () => {
-    const handleClose = jest.fn();
+    const handleClose = vi.fn();
     render(<ClaimQRCode isOpen={true} onClose={handleClose} claim={mockClaim} />);
 
     const closeBtn = screen.getByRole('button', { name: '' }); // X close button

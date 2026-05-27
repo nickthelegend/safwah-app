@@ -338,7 +338,7 @@ export function WithdrawalModal({ isOpen, onClose, availableBalance }: Withdrawa
                   <div className="bg-zinc-800 rounded-xl p-3">
                     <p className="text-zinc-400 text-xs mb-1">Transaction</p>
                     <a
-                      href={`https://devnet.suiscan.xyz/devnet/tx/${txDigest}`}
+                      href={`https://testnet.suiscan.xyz/testnet/tx/${txDigest}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-yellow-400 text-xs font-mono hover:underline"

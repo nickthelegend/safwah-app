@@ -12,7 +12,7 @@ interface ClaimQRPayload {
   receiptCount: number;     // Number of receipts in claim
   merchantNames: string[];  // List of merchants
   submittedAt: string;      // ISO timestamp
-  network: string;          // "devnet" | "mainnet"
+  network: string;          // "testnet" | "mainnet"
   checksum: string;         // sha256 of claimObjectId + tourist (fraud prevention)
 }
 
@@ -54,7 +54,7 @@ export function ClaimQRCode({ isOpen, onClose, claim }: ClaimQRCodeProps) {
     receiptCount: claim.receiptCount,
     merchantNames: claim.merchantNames,
     submittedAt: claim.submittedAt,
-    network: process.env.VITE_SUI_NETWORK ?? 'devnet',
+    network: process.env.VITE_SUI_NETWORK ?? 'testnet',
     checksum: btoa(`${claim.objectId}:${account?.address ?? ''}`).slice(0, 16),
   };
 
@@ -214,7 +214,7 @@ export function ClaimQRCode({ isOpen, onClose, claim }: ClaimQRCodeProps) {
 
             {/* Sui Explorer Link */}
             <a
-              href={`https://devnet.suiscan.xyz/devnet/object/${claim.objectId}`}
+              href={`https://testnet.suiscan.xyz/testnet/object/${claim.objectId}`}
               target="_blank"
               rel="noopener noreferrer"
               className="block text-center text-zinc-500 text-xs mt-3 hover:text-yellow-400 transition-colors"

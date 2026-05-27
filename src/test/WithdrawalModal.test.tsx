@@ -1,30 +1,31 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { WithdrawalModal } from '../components/WithdrawalModal';
+import { vi, describe, test, expect } from 'vitest';
 import '@testing-library/jest-dom';
 
 // Mock Sui kit and react components
-jest.mock('@mysten/dapp-kit', () => ({
-  useSignAndExecuteTransaction: () => ({ mutateAsync: jest.fn() }),
+vi.mock('@mysten/dapp-kit', () => ({
+  useSignAndExecuteTransaction: () => ({ mutateAsync: vi.fn() }),
   useCurrentAccount: () => ({ address: '0x1234567890123456789012345678901234567890' }),
-  useSuiClient: () => ({ getCoins: jest.fn() }),
+  useSuiClient: () => ({ getCoins: vi.fn() }),
 }));
 
-jest.mock('@mysten/enoki/react', () => ({
-  useEnokiFlow: () => ({ getKeypair: jest.fn() }),
+vi.mock('@mysten/enoki/react', () => ({
+  useEnokiFlow: () => ({ getKeypair: vi.fn() }),
   useZkLogin: () => ({ address: '0x123456' }),
   useZkLoginSession: () => ({ jwt: 'test-jwt' }),
 }));
 
-jest.mock('../lib/gasless', () => ({
-  useGaslessTransaction: () => ({ executeGasless: jest.fn() }),
+vi.mock('../lib/gasless', () => ({
+  useGaslessTransaction: () => ({ executeGasless: vi.fn() }),
 }));
 
 describe('WithdrawalModal Component', () => {
   const mockBalance = 50000000; // 50 USDC
 
   test('renders method selection list when open', () => {
-    const handleClose = jest.fn();
+    const handleClose = vi.fn();
     render(<WithdrawalModal isOpen={true} onClose={handleClose} availableBalance={mockBalance} />);
 
     expect(screen.getByText('Withdraw Funds')).toBeInTheDocument();
@@ -35,7 +36,7 @@ describe('WithdrawalModal Component', () => {
   });
 
   test('advances to amount step when method is chosen', () => {
-    const handleClose = jest.fn();
+    const handleClose = vi.fn();
     render(<WithdrawalModal isOpen={true} onClose={handleClose} availableBalance={mockBalance} />);
 
     const visaBtn = screen.getByText('Visa / Mastercard');

@@ -19,6 +19,7 @@ import { FxCalculator } from "../components/FxCalculator";
 import { TravelPortfolio } from "../components/TravelPortfolio";
 import { startEventListener } from "../lib/events";
 import { Scanner } from "@yudiel/react-qr-scanner";
+import { toast } from "sonner";
 
 // Types
 type CategoryId = "overview" | "receipts" | "claims" | "nfts";
@@ -93,13 +94,13 @@ export default function Home() {
     if (!walletAddress) return;
     const cleanup = startEventListener(suiClient, walletAddress, {
       onClaimApproved: ({ claimId, finalAmount }) => {
-        alert(`Claim approved! ${claimId.slice(0, 10)}... has been approved by custom officers. Remaining ${(finalAmount / 1_000_000).toFixed(2)} USDC is ready to claim at the airport.`);
+        toast.info(`Claim approved! ${claimId.slice(0, 10)}... has been approved by custom officers. Remaining ${(finalAmount / 1_000_000).toFixed(2)} USDC is ready to claim at the airport.`);
       },
       onClaimSettled: ({ claimId, totalRefunded }) => {
-        alert(`Claim settled! ${claimId.slice(0, 10)}... has been fully settled. Total refunded: ${(totalRefunded / 1_000_000).toFixed(2)} USDC.`);
+        toast.success(`Claim settled! ${claimId.slice(0, 10)}... has been fully settled. Total refunded: ${(totalRefunded / 1_000_000).toFixed(2)} USDC.`);
       },
       onInvoiceReceived: ({ invoiceNumber, merchantName, vatAmount }) => {
-        alert(`New digital invoice received! Invoice #${invoiceNumber} from ${merchantName} is eligible for a VAT refund of ${(vatAmount / 1_000_000).toFixed(2)} USDC.`);
+        toast.info(`New digital invoice received! Invoice #${invoiceNumber} from ${merchantName} is eligible for a VAT refund of ${(vatAmount / 1_000_000).toFixed(2)} USDC.`);
       }
     });
     return cleanup;
@@ -238,7 +239,7 @@ export default function Home() {
   // Faucet handler
   const handleGetTestUsdc = async () => {
     if (!walletConnected) {
-      alert("Please connect your Sui Wallet first!");
+      toast.error("Please connect your Sui Wallet first!");
       return;
     }
     try {
@@ -255,21 +256,21 @@ export default function Home() {
         jwt: zkSession?.jwt ?? undefined,
         fallback: () => signAndExecute({ transaction: tx }),
       });
-      alert(`100 Test USDC successfully minted!\nTransaction digest: ${result.digest}`);
+      toast.success(`100 Test USDC successfully minted!\nTransaction digest: ${result.digest}`);
     } catch (err: any) {
-      alert(`Faucet call failed: ${err.message || err}`);
+      toast.error(`Faucet call failed: ${err.message || err}`);
     }
   };
 
   // Submit claim handler (Bundles selected receipts on-chain)
   const handleSubmitClaim = async () => {
     if (!walletConnected) {
-      alert("Please connect your Sui Wallet first!");
+      toast.error("Please connect your Sui Wallet first!");
       return;
     }
     const selected = receipts.filter(r => r.selectedForClaim && !r.claimed);
     if (selected.length === 0) {
-      alert("Select at least one receipt to bundle into a claim.");
+      toast.error("Select at least one receipt to bundle into a claim.");
       return;
     }
 
@@ -365,9 +366,9 @@ export default function Home() {
       ));
 
       setActiveCategory("claims");
-      alert(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
+      toast.success(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
     } catch (err: any) {
-      alert(`Claim submission failed: ${err.message || err}`);
+      toast.error(`Claim submission failed: ${err.message || err}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -519,9 +520,9 @@ export default function Home() {
       setScannedBill(null);
       setActiveCategory("claims");
 
-      alert(`Payment & Claim Refund processed atomically!\n\n95% Net purchase paid to merchant.\n80% instant VAT refund (${instantPayout} USDC) received in your wallet.\nInvoice NFT minted successfully!\nTransaction Hash: ${result.digest}`);
+      toast.success(`Payment & Claim Refund processed atomically!\n\n95% Net purchase paid to merchant.\n80% instant VAT refund (${instantPayout} USDC) received in your wallet.\nInvoice NFT minted successfully!\nTransaction Hash: ${result.digest}`);
     } catch (err: any) {
-      alert(`Transaction failed: err.message || err`);
+      toast.error(`Transaction failed: ${err.message || err}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -530,7 +531,7 @@ export default function Home() {
   // Mint Refund proof NFT on Sui (mock UI updates, can call safwah_nft in v2 if needed)
   const handleMintNFT = (claimId: string) => {
     if (!walletConnected) {
-      alert("Please connect your Sui Wallet first!");
+      toast.error("Please connect your Sui Wallet first!");
       return;
     }
     const claim = claims.find(c => c.id === claimId);
@@ -547,7 +548,7 @@ export default function Home() {
 
     setNfts(prev => [newNFT, ...prev]);
     setClaims(prev => prev.map(c => c.id === claimId ? { ...c, nftMinted: true } : c));
-    alert(`Proof of Refund NFT successfully minted on Sui!\nTransaction Hash: ${newNFT.txnHash}`);
+    toast.success(`Proof of Refund NFT successfully minted on Sui!\nTransaction Hash: ${newNFT.txnHash}`);
   };
 
   // Upload receipt (Walrus storage + AI scan)
@@ -585,9 +586,9 @@ export default function Home() {
       setReceipts(prev => [newRec, ...prev]);
       setIsModalOpen(false);
       setActiveCategory("receipts");
-      alert(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus Blob: ${walrusResult.blobId.slice(0, 8)}...)!`);
+      toast.success(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus Blob: ${walrusResult.blobId.slice(0, 8)}...)!`);
     } catch (err: any) {
-      alert(`Walrus upload failed: ${err.message || err}`);
+      toast.error(`Walrus upload failed: ${err.message || err}`);
     } finally {
       setIsUploading(false);
     }

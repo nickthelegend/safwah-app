@@ -18,6 +18,7 @@ import { ZkLoginButton } from "../components/ZkLoginButton";
 import { FxCalculator } from "../components/FxCalculator";
 import { TravelPortfolio } from "../components/TravelPortfolio";
 import { startEventListener } from "../lib/events";
+import { Scanner } from "@yudiel/react-qr-scanner";
 
 // Types
 type CategoryId = "overview" | "receipts" | "claims" | "nfts";
@@ -130,14 +131,88 @@ export default function Home() {
   const [selectedClaimForQr, setSelectedClaimForQr] = useState<Claim | null>(null);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
 
+  // Digital pay & scanner states
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannedBill, setScannedBill] = useState<any | null>(null);
+  const [scannerError, setScannerError] = useState("");
+
+  // Query owned InvoiceNFTs
+  const { data: ownedInvoiceNFTs } = useSuiClientQuery('getOwnedObjects', {
+    owner: walletAddress,
+    filter: {
+      StructType: `${CONTRACTS.PACKAGE_ID}::safwah_nft::InvoiceNFT`,
+    },
+    options: {
+      showContent: true,
+    }
+  }, { enabled: walletConnected });
+
+  // Query owned RefundSettlementNFTs
+  const { data: ownedSettlementNFTs } = useSuiClientQuery('getOwnedObjects', {
+    owner: walletAddress,
+    filter: {
+      StructType: `${CONTRACTS.PACKAGE_ID}::safwah_nft::RefundSettlementNFT`,
+    },
+    options: {
+      showContent: true,
+    }
+  }, { enabled: walletConnected });
+
+  // Load claims from localStorage on mount
+  useEffect(() => {
+    if (!walletAddress) return;
+    const savedClaims = localStorage.getItem(`safwah_claims_${walletAddress}`);
+    if (savedClaims) {
+      try {
+        setClaims(JSON.parse(savedClaims));
+      } catch (e) {}
+    }
+  }, [walletAddress]);
+
+  // Save claims to localStorage helper
+  const updateClaimsAndSave = (newClaims: Claim[]) => {
+    setClaims(newClaims);
+    if (walletAddress) {
+      localStorage.setItem(`safwah_claims_${walletAddress}`, JSON.stringify(newClaims));
+    }
+  };
+
+  // Map on-chain NFTs
+  const invoiceNfts = (ownedInvoiceNFTs?.data || []).map((obj: any) => {
+    const fields = obj.data?.content?.fields || {};
+    return {
+      id: obj.data?.objectId || `invoice-${Math.random()}`,
+      title: `Invoice #${fields.invoice_number || "Unknown"}`,
+      claimId: fields.is_claimed ? "Submitted" : "Unclaimed",
+      vatRefunded: `${(Number(fields.vat_amount || 0) / 1_000_000).toFixed(2)} USDC`,
+      imageUrl: fields.image_url || "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=250&auto=format&fit=crop",
+      txnHash: obj.data?.objectId ? (obj.data.objectId.slice(0, 8) + "..." + obj.data.objectId.slice(-6)) : ""
+    };
+  });
+
+  const settlementNfts = (ownedSettlementNFTs?.data || []).map((obj: any) => {
+    const fields = obj.data?.content?.fields || {};
+    return {
+      id: obj.data?.objectId || `settlement-${Math.random()}`,
+      title: `Refund Proof #${fields.claim_id?.slice(-6) || "Settled"}`,
+      claimId: fields.claim_id || "CLM-Real",
+      vatRefunded: `${(Number(fields.total_vat_refunded || 0) / 1_000_000).toFixed(2)} USDC`,
+      imageUrl: fields.image_url || "https://images.unsplash.com/photo-1642156878705-4c07c6f0ea99?q=80&w=250&auto=format&fit=crop",
+      txnHash: obj.data?.objectId ? (obj.data.objectId.slice(0, 8) + "..." + obj.data.objectId.slice(-6)) : ""
+    };
+  });
+
+  // Combine both for displaying in the NFTs list
+  const allNfts = [...settlementNfts, ...invoiceNfts, ...nfts];
+
   // Portfolio calculations
   const totalRefundedVal = claims.reduce((sum, c) => {
     const numericVat = parseFloat(c.totalVat) || 0;
     const portion = c.status === "Fully Settled" ? 1.0 : 0.8;
     return sum + (numericVat * portion) * 1_000_000;
   }, 0);
-  const settlementNFTCount = claims.filter(c => c.nftMinted).length;
-  const invoiceNFTCount = receipts.length;
+  const settlementNFTCount = settlementNfts.length || claims.filter(c => c.nftMinted).length;
+  const invoiceNFTCount = invoiceNfts.length || receipts.length;
   const merchantNames = receipts.map(r => r.storeName);
 
   // Map selectedClaimForQr to ClaimQRCode component's expected props format
@@ -293,6 +368,160 @@ export default function Home() {
       alert(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
     } catch (err: any) {
       alert(`Claim submission failed: ${err.message || err}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle scanned Digital Bill QR code
+  const handleScanBill = (result: string) => {
+    if (!result) return;
+    try {
+      const payload = JSON.parse(result);
+      if (payload.type === "safwah_bill_v1") {
+        setScannedBill(payload);
+        setIsScannerOpen(false);
+      } else {
+        setScannerError("Invalid QR Code: Not a Safwah Digital Bill");
+        setTimeout(() => setScannerError(""), 3000);
+      }
+    } catch (err) {
+      setScannerError("Invalid QR Code: Failed to parse");
+      setTimeout(() => setScannerError(""), 3000);
+    }
+  };
+
+  // Atomic PTB payment & claim checkout
+  const handleExecuteDigitalPay = async () => {
+    if (!walletConnected || !scannedBill) return;
+    setIsSubmitting(true);
+    try {
+      const grossAED = parseFloat(scannedBill.amountAED.replace(/,/g, ''));
+      const vatAED = parseFloat(scannedBill.vatAED.replace(/,/g, ''));
+      const netAED = grossAED - vatAED;
+
+      const vatUSDC = (vatAED / 3.67).toFixed(2);
+      const vatAmountBaseUnits = Math.floor(parseFloat(vatUSDC) * 1_000_000);
+
+      const netUSDC = (netAED / 3.67).toFixed(2);
+      const netAmountBaseUnits = Math.floor(parseFloat(netUSDC) * 1_000_000);
+
+      const totalRequired = vatAmountBaseUnits + netAmountBaseUnits;
+
+      // 1. Fetch user coins to cover the payment
+      const coins = await suiClient.getCoins({
+        owner: walletAddress,
+        coinType: CONTRACTS.USDC_COIN_TYPE,
+      });
+
+      if (coins.data.length === 0) {
+        throw new Error("No USDC balance. Click the 'Get Test USDC' button to get some test coins.");
+      }
+
+      // Calculate total available balance
+      const totalAvailable = coins.data.reduce((sum, c) => sum + Number(c.balance), 0);
+      if (totalAvailable < totalRequired) {
+        throw new Error(`Insufficient USDC balance. Required: ${(totalRequired / 1_000_000).toFixed(2)} USDC, Available: ${(totalAvailable / 1_000_000).toFixed(2)} USDC.`);
+      }
+
+      const tx = new Transaction();
+      
+      // Merge coins if there are multiple coin objects
+      const primaryCoin = coins.data[0].coinObjectId;
+      if (coins.data.length > 1) {
+        tx.mergeCoins(
+          tx.object(primaryCoin),
+          coins.data.slice(1).map(c => tx.object(c.coinObjectId))
+        );
+      }
+
+      // Split coins: netCoin (merchant pay) and vatCoin (escrow)
+      const [netCoin, vatCoin] = tx.splitCoins(tx.object(primaryCoin), [
+        netAmountBaseUnits,
+        vatAmountBaseUnits
+      ]);
+
+      // Transfer net purchase to merchant
+      tx.transferObjects([netCoin], tx.pure.address(scannedBill.merchantAddress));
+
+      // Call submit_claim
+      tx.moveCall({
+        target: `${CONTRACTS.PACKAGE_ID}::safwah::submit_claim`,
+        arguments: [
+          tx.object(CONTRACTS.ESCROW_ID),
+          vatCoin,
+          tx.pure.vector('vector<u8>', [Array.from(new TextEncoder().encode(scannedBill.walrusBlobId))]),
+          tx.pure.vector('u64', [vatAmountBaseUnits]),
+          tx.pure.vector('vector<u8>', [Array.from(new TextEncoder().encode(scannedBill.businessName))]),
+          tx.pure.u64(Math.floor(grossAED * 100)), // AED cents
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(scannedBill.invoiceNumber))),
+        ],
+      });
+
+      // Call issue_invoice_nft
+      tx.moveCall({
+        target: `${CONTRACTS.PACKAGE_ID}::safwah::issue_invoice_nft`,
+        arguments: [
+          tx.object(scannedBill.merchantLicenseId),
+          tx.pure.address(walletAddress),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(scannedBill.invoiceNumber))),
+          tx.pure.u64(Math.floor(grossAED * 100)), // AED cents
+          tx.pure.u64(vatAmountBaseUnits),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(scannedBill.walrusBlobId))),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(scannedBill.walrusUrl))),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(scannedBill.walrusUrl))),
+        ],
+      });
+
+      const result = await executeGasless(tx, suiClient, {
+        jwt: zkSession?.jwt ?? undefined,
+        fallback: () => signAndExecute({ transaction: tx }),
+      });
+
+      const txDetails = await suiClient.waitForTransaction({
+        digest: result.digest,
+        options: {
+          showObjectChanges: true,
+        }
+      });
+
+      const claimChange = txDetails.objectChanges?.find(
+        (oc: any) => oc.type === "created" && oc.objectType.includes("::safwah::VatClaim")
+      );
+      const claimObjectId = (claimChange as any)?.objectId || `CLAIM-${Date.now()}`;
+
+      // Create new locally saved claims & receipts
+      const instantPayout = (parseFloat(vatUSDC) * 0.8).toFixed(2);
+      const newClaim: Claim = {
+        id: claimObjectId,
+        title: `${scannedBill.businessName} Claim`,
+        receiptCount: 1,
+        totalVat: `${vatUSDC} USDC`,
+        payoutAmount: `${instantPayout} USDC (80%)`,
+        status: "80% Paid (Exit Pending)",
+        nftMinted: true, // NFT minted atomically!
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      const newRec: Receipt = {
+        id: `rec-${Date.now()}`,
+        storeName: scannedBill.businessName,
+        amount: `${parseFloat(scannedBill.amountAED).toLocaleString()} AED`,
+        vat: `${parseFloat(scannedBill.vatAED).toLocaleString()} AED`,
+        date: new Date().toISOString().split('T')[0],
+        walrusUrl: `walrus://blob/${scannedBill.walrusBlobId}`,
+        selectedForClaim: false,
+        claimed: true
+      };
+
+      setReceipts(prev => [newRec, ...prev]);
+      updateClaimsAndSave([newClaim, ...claims]);
+      setScannedBill(null);
+      setActiveCategory("claims");
+
+      alert(`Payment & Claim Refund processed atomically!\n\n95% Net purchase paid to merchant.\n80% instant VAT refund (${instantPayout} USDC) received in your wallet.\nInvoice NFT minted successfully!\nTransaction Hash: ${result.digest}`);
+    } catch (err: any) {
+      alert(`Transaction failed: err.message || err`);
     } finally {
       setIsSubmitting(false);
     }
@@ -551,6 +780,15 @@ export default function Home() {
             <p className="hero-card-desc">
               Receipt files are compressed and uploaded on Walrus for secure, decentralized government verification.
             </p>
+            {walletConnected && (
+              <button 
+                className="btn-primary" 
+                style={{ width: "100%", padding: "12px", marginBottom: "16px", background: "var(--color-cyber-gold-dark)", color: "var(--color-void-black)" }}
+                onClick={() => setIsModalOpen(true)}
+              >
+                + Upload Receipt (AI Scan to Walrus)
+              </button>
+            )}
             <div className="bento-grid">
               <div className="bento-metric-card">
                 <span className="bento-metric-label">TOTAL RECEIPTS</span>
@@ -647,7 +885,7 @@ export default function Home() {
                   <div className="bento-icon-circle">
                     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 12V6"/></svg>
                   </div>
-                  <span className="bento-value">{nfts.length} Minted</span>
+                  <span className="bento-value">{allNfts.length} Minted</span>
                 </div>
               </div>
               <div className="bento-metric-card">
@@ -763,7 +1001,7 @@ export default function Home() {
               <span className="label-caps">MINTED PROOF NFTS</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-              {nfts.map((nft) => (
+              {allNfts.map((nft) => (
                 <div key={nft.id} className="feed-card" style={{ flexDirection: "column", alignItems: "flex-start", gap: "12px", padding: "16px" }}>
                   <div style={{ position: "relative", width: "100%", height: "120px", borderRadius: "12px", overflow: "hidden", backgroundColor: "#022C22", border: "1px solid rgba(212, 175, 55, 0.2)" }}>
                     <div style={{ position: "absolute", top: "10px", left: "10px", fontSize: "10px", background: "rgba(0,0,0,0.6)", padding: "4px 8px", borderRadius: "8px", border: "1px solid rgba(212,175,55,0.3)" }}>
@@ -797,12 +1035,18 @@ export default function Home() {
             </svg>
           </button>
 
-          {/* FAB: Upload Receipt */}
+          {/* FAB: Center QR Scanner */}
           <div className="fab-container">
-            <button className={`fab-btn ${isModalOpen ? "open" : ""}`} onClick={() => setIsModalOpen(true)}>
-              <svg viewBox="0 0 24 24" stroke="currentColor">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
+            <button className={`fab-btn ${isScannerOpen ? "open" : ""}`} onClick={() => setIsScannerOpen(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: "20px", height: "20px" }}>
+                <rect width="5" height="5" x="3" y="3" rx="1" />
+                <rect width="5" height="5" x="16" y="3" rx="1" />
+                <rect width="5" height="5" x="3" y="16" rx="1" />
+                <path d="M21 16V21H16" />
+                <path d="M21 12H16" />
+                <path d="M12 21H12" />
+                <path d="M12 12H12" />
+                <path d="M12 16H16" />
               </svg>
             </button>
           </div>
@@ -885,6 +1129,105 @@ export default function Home() {
         onClose={() => setIsWithdrawOpen(false)}
         availableBalance={usdcBalanceVal}
       />
+
+      {/* Live QR Scanner Camera Modal */}
+      {isScannerOpen && (
+        <div className="modal-overlay" onClick={() => setIsScannerOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "360px", padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <span className="label-caps" style={{ color: "var(--color-cyber-gold)", fontSize: "12px" }}>SCAN DIGITAL BILL QR CODE</span>
+              <button onClick={() => setIsScannerOpen(false)} style={{ background: "none", border: "none", fontSize: "24px", color: "var(--color-sage)", cursor: "pointer" }}>&times;</button>
+            </div>
+
+            <div style={{ position: "relative", width: "100%", aspectRatio: "1", borderRadius: "16px", overflow: "hidden", background: "#000" }}>
+              <Scanner
+                onScan={(detectedCodes) => {
+                  if (detectedCodes[0]?.rawValue) {
+                    handleScanBill(detectedCodes[0].rawValue);
+                  }
+                }}
+                onError={(err) => console.warn(err)}
+                constraints={{ facingMode: "environment" }}
+                styles={{
+                  container: { width: "100%", height: "100%" },
+                  video: { width: "100%", height: "100%", objectFit: "cover" }
+                }}
+              />
+              <div className="absolute inset-0 pointer-events-none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, border: "2px dashed var(--color-cyber-gold)", margin: "30px", borderRadius: "12px" }} />
+            </div>
+
+            {scannerError && (
+              <p style={{ color: "#EF4444", fontSize: "12px", textAlign: "center", marginTop: "12px", fontWeight: "bold" }}>{scannerError}</p>
+            )}
+
+            <p style={{ color: "var(--color-sage)", fontSize: "11px", textAlign: "center", marginTop: "12px" }}>
+              Hold the merchant's digital bill QR code inside the frame to pay and claim refund atomically.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Pay & Claim Refund Modal */}
+      {scannedBill && (
+        <div className="modal-overlay" onClick={() => setScannedBill(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <span className="label-caps" style={{ color: "var(--color-cyber-gold)", fontSize: "12px" }}>CONFIRM PAY & CLAIM REFUND</span>
+              <button onClick={() => setScannedBill(null)} style={{ background: "none", border: "none", fontSize: "24px", color: "var(--color-sage)", cursor: "pointer" }}>&times;</button>
+            </div>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="bento-metric-card" style={{ background: "rgba(212,175,55,0.05)", border: "1px solid rgba(212,175,55,0.2)", padding: "12px" }}>
+                <span className="bento-metric-label">STORE / MERCHANT</span>
+                <span className="bento-value" style={{ fontSize: "16px", color: "#fff", display: "block", marginTop: "4px" }}>{scannedBill.businessName}</span>
+              </div>
+
+              <div className="bento-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div className="bento-metric-card" style={{ padding: "12px" }}>
+                  <span className="bento-metric-label">GROSS AMOUNT</span>
+                  <span className="bento-value" style={{ fontSize: "14px", display: "block", marginTop: "4px" }}>{scannedBill.amountAED} AED</span>
+                </div>
+                <div className="bento-metric-card" style={{ padding: "12px" }}>
+                  <span className="bento-metric-label">VAT (5% AED)</span>
+                  <span className="bento-value" style={{ fontSize: "14px", color: "var(--color-cyber-gold)", display: "block", marginTop: "4px" }}>{scannedBill.vatAED} AED</span>
+                </div>
+              </div>
+
+              <div className="bento-metric-card" style={{ padding: "12px" }}>
+                <span className="bento-metric-label">USDC BREAKDOWN</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px", fontSize: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--color-sage)" }}>Merchant Net Pay (95%):</span>
+                    <span style={{ color: "#fff", fontWeight: "bold" }}>{((parseFloat(scannedBill.amountAED) - parseFloat(scannedBill.vatAED)) / 3.67).toFixed(2)} USDC</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--color-sage)" }}>Escrowed VAT (5%):</span>
+                    <span style={{ color: "#fff", fontWeight: "bold" }}>{(parseFloat(scannedBill.vatAED) / 3.67).toFixed(2)} USDC</span>
+                  </div>
+                  <hr style={{ borderColor: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--color-cyber-gold)", fontWeight: "bold" }}>Instant Refund (80%):</span>
+                    <span style={{ color: "#10B981", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / 3.67) * 0.8).toFixed(2)} USDC</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--color-sage)" }}>Locked Exit Refund (20%):</span>
+                    <span style={{ color: "var(--color-cyber-gold)", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / 3.67) * 0.2).toFixed(2)} USDC</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-buttons" style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
+                <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setScannedBill(null)}>
+                  Cancel
+                </button>
+                <button className="btn-primary" style={{ flex: 2 }} onClick={handleExecuteDigitalPay} disabled={isSubmitting}>
+                  {isSubmitting ? "Executing PTB..." : "Pay & Claim Refund"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

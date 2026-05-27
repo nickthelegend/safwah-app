@@ -95,9 +95,11 @@ export default function Home() {
     const cleanup = startEventListener(suiClient, walletAddress, {
       onClaimApproved: ({ claimId, finalAmount }) => {
         toast.info(`Claim approved! ${claimId.slice(0, 10)}... has been approved by custom officers. Remaining ${(finalAmount / 1_000_000).toFixed(2)} USDC is ready to claim at the airport.`);
+        setClaims(prev => prev.map(c => c.id === claimId ? { ...c, status: "80% Paid (Exit Pending)" } : c));
       },
       onClaimSettled: ({ claimId, totalRefunded }) => {
         toast.success(`Claim settled! ${claimId.slice(0, 10)}... has been fully settled. Total refunded: ${(totalRefunded / 1_000_000).toFixed(2)} USDC.`);
+        setClaims(prev => prev.map(c => c.id === claimId ? { ...c, status: "Fully Settled", nftMinted: true } : c));
       },
       onInvoiceReceived: ({ invoiceNumber, merchantName, vatAmount }) => {
         toast.info(`New digital invoice received! Invoice #${invoiceNumber} from ${merchantName} is eligible for a VAT refund of ${(vatAmount / 1_000_000).toFixed(2)} USDC.`);
@@ -205,6 +207,13 @@ export default function Home() {
 
   // Combine both for displaying in the NFTs list
   const allNfts = [...settlementNfts, ...invoiceNfts, ...nfts];
+
+  const claimHasNft = (claimId: string) => {
+    return settlementNfts.some(n => n.claimId === claimId);
+  };
+  const getNftObjectId = (claimId: string) => {
+    return settlementNfts.find(n => n.claimId === claimId)?.id || "";
+  };
 
   // Portfolio calculations
   const totalRefundedVal = claims.reduce((sum, c) => {
@@ -526,29 +535,6 @@ export default function Home() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  // Mint Refund proof NFT on Sui (mock UI updates, can call safwah_nft in v2 if needed)
-  const handleMintNFT = (claimId: string) => {
-    if (!walletConnected) {
-      toast.error("Please connect your Sui Wallet first!");
-      return;
-    }
-    const claim = claims.find(c => c.id === claimId);
-    if (!claim) return;
-
-    const newNFT: SuiNFT = {
-      id: `nft-${Date.now()}`,
-      title: `Safwah Proof #${claimId.split('-')[1] || "NFT"}`,
-      claimId: claimId,
-      vatRefunded: claim.totalVat,
-      imageUrl: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=250&auto=format&fit=crop",
-      txnHash: `0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)}`
-    };
-
-    setNfts(prev => [newNFT, ...prev]);
-    setClaims(prev => prev.map(c => c.id === claimId ? { ...c, nftMinted: true } : c));
-    toast.success(`Proof of Refund NFT successfully minted on Sui!\nTransaction Hash: ${newNFT.txnHash}`);
   };
 
   // Upload receipt (Walrus storage + AI scan)
@@ -921,15 +907,19 @@ export default function Home() {
                   </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
-                  <span className="label-caps" style={{ color: claim.status.startsWith("Fully") ? "#10B981" : "var(--color-cyber-gold)" }}>{claim.status}</span>
-                  {!claim.nftMinted && (
-                    <button 
-                      className="btn-primary" 
-                      style={{ fontSize: "10px", padding: "6px 12px", borderRadius: "10px" }}
-                      onClick={() => handleMintNFT(claim.id)}
+                  <span className="label-caps" style={{ color: (claim.status === "Fully Settled" || claimHasNft(claim.id)) ? "#10B981" : "var(--color-cyber-gold)" }}>{claim.status}</span>
+                  {(claim.status === "Fully Settled" || claimHasNft(claim.id)) ? (
+                    <a
+                      href={`https://suiscan.xyz/devnet/object/${getNftObjectId(claim.id)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-primary text-center"
+                      style={{ fontSize: "10px", padding: "6px 12px", borderRadius: "10px", textDecoration: "none", color: "var(--color-void-black)" }}
                     >
-                      Mint NFT Proof
-                    </button>
+                      View NFT Proof
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: "11px", color: "var(--color-sage)" }}>Exit Pending</span>
                   )}
                 </div>
               </div>

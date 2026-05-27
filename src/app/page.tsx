@@ -12,6 +12,13 @@ import { ClaimQRCode } from "../components/ClaimQRCode";
 import { WithdrawalModal } from "../components/WithdrawalModal";
 import { ClaimTracker } from "../components/ClaimTracker";
 
+import { useEnokiFlow, useZkLogin, useZkLoginSession } from "@mysten/enoki/react";
+import { useGaslessTransaction } from "../lib/gasless";
+import { ZkLoginButton } from "../components/ZkLoginButton";
+import { FxCalculator } from "../components/FxCalculator";
+import { TravelPortfolio } from "../components/TravelPortfolio";
+import { startEventListener } from "../lib/events";
+
 // Types
 type CategoryId = "overview" | "receipts" | "claims" | "nfts";
 
@@ -52,16 +59,21 @@ export default function Home() {
   
   // Real Sui Wallet connection hooks
   const currentAccount = useCurrentAccount();
-  const walletConnected = !!currentAccount;
-  const walletAddress = currentAccount?.address || "";
+  const enokiFlow = useEnokiFlow();
+  const zkLogin = useZkLogin();
+  const zkSession = useZkLoginSession();
+  const { executeGasless } = useGaslessTransaction();
+
+  const walletAddress = currentAccount?.address || zkLogin.address || "";
+  const walletConnected = !!walletAddress;
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const suiClient = useSuiClient();
 
   // Fetch real USDC balance
   const { data: coinsData } = useSuiClientQuery('getCoins', {
-    owner: currentAccount?.address ?? '',
+    owner: walletAddress,
     coinType: CONTRACTS.USDC_COIN_TYPE,
-  }, { enabled: !!currentAccount });
+  }, { enabled: walletConnected });
 
   const usdcBalanceVal = coinsData?.data
     .reduce((sum, c) => sum + Number(c.balance), 0) ?? 0;
@@ -69,11 +81,28 @@ export default function Home() {
 
   // Fetch real SUI balance
   const { data: suiBalanceData } = useSuiClientQuery('getBalance', {
-    owner: currentAccount?.address ?? '',
-  }, { enabled: !!currentAccount });
+    owner: walletAddress,
+  }, { enabled: walletConnected });
 
   const suiBalanceVal = suiBalanceData ? Number(suiBalanceData.totalBalance) : 0;
   const suiDisplay = (suiBalanceVal / 1_000_000_000).toFixed(2);
+
+  // Start live event listener for status updates and incoming invoices
+  useEffect(() => {
+    if (!walletAddress) return;
+    const cleanup = startEventListener(suiClient, walletAddress, {
+      onClaimApproved: ({ claimId, finalAmount }) => {
+        alert(`Claim approved! ${claimId.slice(0, 10)}... has been approved by custom officers. Remaining ${(finalAmount / 1_000_000).toFixed(2)} USDC is ready to claim at the airport.`);
+      },
+      onClaimSettled: ({ claimId, totalRefunded }) => {
+        alert(`Claim settled! ${claimId.slice(0, 10)}... has been fully settled. Total refunded: ${(totalRefunded / 1_000_000).toFixed(2)} USDC.`);
+      },
+      onInvoiceReceived: ({ invoiceNumber, merchantName, vatAmount }) => {
+        alert(`New digital invoice received! Invoice #${invoiceNumber} from ${merchantName} is eligible for a VAT refund of ${(vatAmount / 1_000_000).toFixed(2)} USDC.`);
+      }
+    });
+    return cleanup;
+  }, [suiClient, walletAddress]);
 
   const [receipts, setReceipts] = useState<Receipt[]>([
     { id: "rec-1", storeName: "Apple Store, Dubai Mall", amount: "5,499.00 AED", vat: "274.95 AED", date: "2026-05-23", walrusUrl: "walrus://blob/q37s8f921a9x7zh1", selectedForClaim: true, claimed: false },
@@ -100,6 +129,16 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedClaimForQr, setSelectedClaimForQr] = useState<Claim | null>(null);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+
+  // Portfolio calculations
+  const totalRefundedVal = claims.reduce((sum, c) => {
+    const numericVat = parseFloat(c.totalVat) || 0;
+    const portion = c.status === "Fully Settled" ? 1.0 : 0.8;
+    return sum + (numericVat * portion) * 1_000_000;
+  }, 0);
+  const settlementNFTCount = claims.filter(c => c.nftMinted).length;
+  const invoiceNFTCount = receipts.length;
+  const merchantNames = receipts.map(r => r.storeName);
 
   // Map selectedClaimForQr to ClaimQRCode component's expected props format
   const qrClaimData = selectedClaimForQr ? {
@@ -134,10 +173,13 @@ export default function Home() {
         arguments: [
           tx.object(CONTRACTS.USDC_MOCK_ADMIN_ID),
           tx.pure.u64(100_000_000),   // 100 USDC (6 decimals)
-          tx.pure.address(currentAccount.address),
+          tx.pure.address(walletAddress),
         ],
       });
-      const result = await signAndExecute({ transaction: tx });
+      const result = await executeGasless(tx, suiClient, {
+        jwt: zkSession?.jwt ?? undefined,
+        fallback: () => signAndExecute({ transaction: tx }),
+      });
       alert(`100 Test USDC successfully minted!\nTransaction digest: ${result.digest}`);
     } catch (err: any) {
       alert(`Faucet call failed: ${err.message || err}`);
@@ -165,7 +207,7 @@ export default function Home() {
 
       // 1. Fetch user coins to cover the payment
       const coins = await suiClient.getCoins({
-        owner: currentAccount.address,
+        owner: walletAddress,
         coinType: CONTRACTS.USDC_COIN_TYPE,
       });
 
@@ -214,8 +256,9 @@ export default function Home() {
         ],
       });
 
-      const result = await signAndExecute({ 
-        transaction: tx,
+      const result = await executeGasless(tx, suiClient, {
+        jwt: zkSession?.jwt ?? undefined,
+        fallback: () => signAndExecute({ transaction: tx }),
       });
 
       const txDetails = await suiClient.waitForTransaction({
@@ -330,7 +373,8 @@ export default function Home() {
           <h1 className="header-title-name">Sui VAT Refund</h1>
         </div>
         
-        <div className="header-right">
+        <div className="header-right" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <ZkLoginButton />
           <WalletConnect />
         </div>
       </header>
@@ -474,10 +518,20 @@ export default function Home() {
                 Get Test USDC (Faucet)
               </button>
             )}
-            <div className="hero-alert-box">
+            <div className="hero-alert-box" style={{ marginBottom: "16px" }}>
               <div className="hero-alert-text">
                 ✈️ Scan your Claim QR code at airport exit validation to receive the final 20% (29.64 USDC).
               </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
+              <FxCalculator usdcBalance={usdcBalanceVal} />
+              <TravelPortfolio
+                totalRefunded={totalRefundedVal}
+                settlementNFTCount={settlementNFTCount}
+                invoiceNFTCount={invoiceNFTCount}
+                merchantNames={merchantNames}
+              />
             </div>
           </>
         )}

@@ -5,6 +5,8 @@ import { useSignAndExecuteTransaction, useCurrentAccount, useSuiClient } from '@
 import { Transaction } from '@mysten/sui/transactions';
 import { CONTRACTS } from '../lib/contracts';
 import { toast } from 'sonner';
+import { useEnokiFlow, useZkLogin, useZkLoginSession } from '@mysten/enoki/react';
+import { useGaslessTransaction } from '../lib/gasless';
 
 const WITHDRAWAL_METHODS = [
   {
@@ -82,6 +84,10 @@ export function WithdrawalModal({ isOpen, onClose, availableBalance }: Withdrawa
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const enokiFlow = useEnokiFlow();
+  const zkLogin = useZkLogin();
+  const zkSession = useZkLoginSession();
+  const { executeGasless } = useGaslessTransaction();
 
   const amountUsdc = parseFloat(amount) || 0;
   const amountBase = Math.floor(amountUsdc * 1_000_000);
@@ -96,12 +102,13 @@ export function WithdrawalModal({ isOpen, onClose, availableBalance }: Withdrawa
     .join('|') ?? '';
 
   const handleWithdraw = async () => {
-    if (!account || !selectedMethod) return;
+    const address = account?.address ?? zkLogin.address;
+    if (!address || !selectedMethod) return;
     setIsProcessing(true);
     try {
       // Get USDC coins
       const coins = await suiClient.getCoins({
-        owner: account.address,
+        owner: address,
         coinType: CONTRACTS.USDC_COIN_TYPE,
       });
       if (coins.data.length === 0) throw new Error('No USDC balance');
@@ -123,7 +130,10 @@ export function WithdrawalModal({ isOpen, onClose, availableBalance }: Withdrawa
         ],
       });
 
-      const result = await signAndExecute({ transaction: tx });
+      const result = await executeGasless(tx, suiClient, {
+        jwt: zkSession?.jwt ?? undefined,
+        fallback: () => signAndExecute({ transaction: tx }),
+      });
       setTxDigest(result.digest);
       setStep('success');
     } catch (err: any) {

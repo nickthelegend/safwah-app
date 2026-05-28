@@ -108,21 +108,13 @@ export default function Home() {
     return cleanup;
   }, [suiClient, walletAddress]);
 
-  const [receipts, setReceipts] = useState<Receipt[]>([
-    { id: "rec-1", storeName: "Apple Store, Dubai Mall", amount: "5,499.00 AED", vat: "274.95 AED", date: "2026-05-23", walrusUrl: "walrus://blob/q37s8f921a9x7zh1", selectedForClaim: true, claimed: false },
-    { id: "rec-2", storeName: "Chanel Boutique, Galleria", amount: "12,450.00 AED", vat: "622.50 AED", date: "2026-05-24", walrusUrl: "walrus://blob/m92la10f29zk38sw", selectedForClaim: false, claimed: false },
-    { id: "rec-3", storeName: "Emaar Entertainment", amount: "450.00 AED", vat: "22.50 AED", date: "2026-05-21", walrusUrl: "walrus://blob/k10w82lz71pa92sk", selectedForClaim: true, claimed: false }
-  ]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
 
   // Claims State (80% instant / 20% airport gate split)
-  const [claims, setClaims] = useState<Claim[]>([
-    { id: "CLM-8902", title: "Mall Shopping Bundle", receiptCount: 2, totalVat: "148.20 USDC", payoutAmount: "118.56 USDC (80%)", status: "80% Paid (Exit Pending)", nftMinted: true, date: "2026-05-22" }
-  ]);
+  const [claims, setClaims] = useState<Claim[]>([]);
 
   // Sui NFTs State
-  const [nfts, setNfts] = useState<SuiNFT[]>([
-    { id: "nft-1", title: "Safwah Refund #8902", claimId: "CLM-8902", vatRefunded: "148.20 USDC", imageUrl: "https://images.unsplash.com/photo-1642156878705-4c07c6f0ea99?q=80&w=250&auto=format&fit=crop", txnHash: "0x4b7f...e2a9" }
-  ]);
+  const [nfts, setNfts] = useState<SuiNFT[]>([]);
 
   // Upload modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -184,26 +176,26 @@ export default function Home() {
   const invoiceNfts = (ownedInvoiceNFTs?.data || []).map((obj: any) => {
     const fields = obj.data?.content?.fields || {};
     return {
-      id: obj.data?.objectId || `invoice-${Math.random()}`,
+      id: obj.data?.objectId ?? '',
       title: `Invoice #${fields.invoice_number || "Unknown"}`,
       claimId: fields.is_claimed ? "Submitted" : "Unclaimed",
       vatRefunded: `${(Number(fields.vat_amount || 0) / 1_000_000).toFixed(2)} USDC`,
       imageUrl: fields.image_url || "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=250&auto=format&fit=crop",
       txnHash: obj.data?.objectId ? (obj.data.objectId.slice(0, 8) + "..." + obj.data.objectId.slice(-6)) : ""
     };
-  });
+  }).filter(item => item.id !== '');
 
   const settlementNfts = (ownedSettlementNFTs?.data || []).map((obj: any) => {
     const fields = obj.data?.content?.fields || {};
     return {
-      id: obj.data?.objectId || `settlement-${Math.random()}`,
+      id: obj.data?.objectId ?? '',
       title: `Refund Proof #${fields.claim_id?.slice(-6) || "Settled"}`,
       claimId: fields.claim_id || "CLM-Real",
       vatRefunded: `${(Number(fields.total_vat_refunded || 0) / 1_000_000).toFixed(2)} USDC`,
       imageUrl: fields.image_url || "https://images.unsplash.com/photo-1642156878705-4c07c6f0ea99?q=80&w=250&auto=format&fit=crop",
       txnHash: obj.data?.objectId ? (obj.data.objectId.slice(0, 8) + "..." + obj.data.objectId.slice(-6)) : ""
     };
-  });
+  }).filter(item => item.id !== '');
 
   // Combine both for displaying in the NFTs list
   const allNfts = [...settlementNfts, ...invoiceNfts, ...nfts];
@@ -321,7 +313,12 @@ export default function Home() {
       const [vatCoin] = tx.splitCoins(tx.object(primaryCoin), [totalVatBaseUnits]);
 
       // Prepare claim arguments
-      const blobIds = selected.map(r => Array.from(new TextEncoder().encode(r.walrusUrl.replace("walrus://blob/", ""))));
+      const blobIds = selected.map(r => {
+        const blobId = r.walrusUrl.startsWith('http')
+          ? r.walrusUrl.split('/').pop() ?? r.walrusUrl
+          : r.walrusUrl.replace('walrus://blob/', '');
+        return Array.from(new TextEncoder().encode(blobId));
+      });
       const vatAmounts = selected.map(r => Math.floor((parseFloat(r.vat) / 3.67) * 1_000_000));
       const merchantNames = selected.map(r => Array.from(new TextEncoder().encode(r.storeName)));
       const totalPurchase = Math.floor(selected.reduce((sum, r) => sum + parseFloat(r.amount.replace(/,/g, '')) * 100, 0)); // AED cents
@@ -564,7 +561,7 @@ export default function Home() {
         amount: `${parseFloat(formAmount).toLocaleString()} AED`,
         vat: `${calculatedVat} AED`,
         date: new Date().toISOString().split('T')[0],
-        walrusUrl: `walrus://blob/${walrusResult.blobId}`,
+        walrusUrl: walrusResult.blobUrl,
         selectedForClaim: true,
         claimed: false
       };
@@ -1069,7 +1066,7 @@ export default function Home() {
               </div>
 
               <div className="form-group">
-                <label>Store Name (Mock AI Extracted)</label>
+                <label>Store Name</label>
                 <input 
                   type="text" 
                   className="form-input" 

@@ -12,9 +12,7 @@ import { ClaimQRCode } from "../components/ClaimQRCode";
 import { WithdrawalModal } from "../components/WithdrawalModal";
 import { ClaimTracker } from "../components/ClaimTracker";
 
-import { useEnokiFlow, useZkLogin, useZkLoginSession } from "@mysten/enoki/react";
-import { useGaslessTransaction } from "../lib/gasless";
-import { ZkLoginButton } from "../components/ZkLoginButton";
+
 import { FxCalculator } from "../components/FxCalculator";
 import { TravelPortfolio } from "../components/TravelPortfolio";
 import { startEventListener } from "../lib/events";
@@ -80,12 +78,8 @@ export default function Home() {
   
   // Real Sui Wallet connection hooks
   const currentAccount = useCurrentAccount();
-  const enokiFlow = useEnokiFlow();
-  const zkLogin = useZkLogin();
-  const zkSession = useZkLoginSession();
-  const { executeGasless } = useGaslessTransaction();
 
-  const walletAddress = currentAccount?.address || zkLogin.address || "";
+  const walletAddress = currentAccount?.address || "";
   const walletConnected = !!walletAddress;
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const suiClient = useSuiClient();
@@ -390,10 +384,7 @@ export default function Home() {
           tx.pure.address(walletAddress),
         ],
       });
-      const result = await executeGasless(tx, suiClient, {
-        jwt: zkSession?.jwt ?? undefined,
-        fallback: () => signAndExecute({ transaction: tx }),
-      });
+      const result = await signAndExecute({ transaction: tx });
       toast.success(
         <div>
           <p className="font-bold">100 Test USDC successfully minted!</p>
@@ -512,10 +503,7 @@ export default function Home() {
         ],
       });
 
-      const result = await executeGasless(tx, suiClient, {
-        jwt: zkSession?.jwt ?? undefined,
-        fallback: () => signAndExecute({ transaction: tx }),
-      });
+      const result = await signAndExecute({ transaction: tx });
 
       const txDetails = await suiClient.waitForTransaction({
         digest: result.digest,
@@ -692,10 +680,7 @@ export default function Home() {
         ],
       });
 
-      const result = await executeGasless(tx, suiClient, {
-        jwt: zkSession?.jwt ?? undefined,
-        fallback: () => signAndExecute({ transaction: tx }),
-      });
+      const result = await signAndExecute({ transaction: tx });
 
       const txDetails = await suiClient.waitForTransaction({
         digest: result.digest,
@@ -881,7 +866,6 @@ export default function Home() {
         </div>
         
         <div className="header-right" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <ZkLoginButton />
           <WalletConnect />
         </div>
       </header>
@@ -1535,7 +1519,7 @@ export default function Home() {
                 <button 
                   className="btn-primary" 
                   style={{ flex: 2 }} 
-                  onClick={!walletConnected ? () => { toast.error("Please login using Google zkLogin or connect SUI wallet at the top right first!"); } : handleExecuteDigitalPay} 
+                  onClick={!walletConnected ? () => { toast.error("Please connect SUI wallet at the top right first!"); } : handleExecuteDigitalPay} 
                   disabled={isSubmitting}
                 >
                   {!walletConnected ? "Connect Wallet to Pay" : (isSubmitting ? "Executing PTB..." : "Pay & Claim Refund")}

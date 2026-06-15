@@ -11,15 +11,7 @@ vi.mock('@mysten/dapp-kit', () => ({
   useSuiClient: () => ({ getCoins: vi.fn() }),
 }));
 
-vi.mock('@mysten/enoki/react', () => ({
-  useEnokiFlow: () => ({ getKeypair: vi.fn() }),
-  useZkLogin: () => ({ address: '0x123456' }),
-  useZkLoginSession: () => ({ jwt: 'test-jwt' }),
-}));
 
-vi.mock('../lib/gasless', () => ({
-  useGaslessTransaction: () => ({ executeGasless: vi.fn() }),
-}));
 
 describe('WithdrawalModal Component', () => {
   const mockBalance = 50000000; // 50 USDC

@@ -390,6 +390,31 @@ export default function Home() {
     }
   };
 
+  // Onramp.money widget integration
+  const handleOnramp = () => {
+    if (!walletAddress) {
+      toast.error("Please connect your wallet first!");
+      return;
+    }
+    try {
+      const { OnrampWebSDK } = require('@onramp.money/onramp-web-sdk');
+      const onrampSDK = new OnrampWebSDK({
+        appId: 12345,
+        walletAddress: walletAddress,
+        coinCode: "USDC",
+        network: "sui",
+        fiatAmount: 100,
+        sandbox: true,
+        flowType: 1, // Buy
+      });
+      onrampSDK.show();
+      toast.success("Initialized Onramp.money widget (Sandbox)!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to open on-ramp widget");
+    }
+  };
+
   // Submit claim handler (Bundles selected receipts on-chain)
   const handleSubmitClaim = async () => {
     if (!walletConnected) {
@@ -939,13 +964,22 @@ export default function Home() {
               </div>
             </div>
             {walletConnected && (
-              <button 
-                className="btn-primary" 
-                style={{ width: "100%", padding: "14px", marginTop: "16px", background: "var(--color-cyber-gold-dark)", color: "var(--color-void-black)" }}
-                onClick={handleGetTestUsdc}
-              >
-                Get Test USDC (Faucet)
-              </button>
+              <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
+                <button 
+                  className="btn-primary" 
+                  style={{ flex: 1, padding: "14px", background: "var(--color-cyber-gold-dark)", color: "var(--color-void-black)" }}
+                  onClick={handleGetTestUsdc}
+                >
+                  USDC Faucet
+                </button>
+                <button 
+                  className="btn-primary" 
+                  style={{ flex: 1, padding: "14px", background: "#10B981", color: "#000", border: "none" }}
+                  onClick={handleOnramp}
+                >
+                  Buy USDC (On-Ramp)
+                </button>
+              </div>
             )}
             <div className="hero-alert-box" style={{ marginBottom: "16px" }}>
               <div className="hero-alert-text">

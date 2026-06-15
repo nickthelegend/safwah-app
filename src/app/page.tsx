@@ -56,7 +56,26 @@ interface SuiNFT {
   txnHash: string;
 }
 
+import * as React from 'react';
+
+function useFxRate() {
+  const [rate, setRate] = React.useState(3.6725);
+  React.useEffect(() => {
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.rates && typeof data.rates.AED === 'number') {
+          setRate(data.rates.AED);
+          console.log('Real-time AED/USD FX Rate loaded:', data.rates.AED);
+        }
+      })
+      .catch(err => console.warn('Failed to fetch real-time FX rate, falling back to 3.6725', err));
+  }, []);
+  return rate;
+}
+
 export default function Home() {
+  const fxRate = useFxRate();
   const [activeCategory, setActiveCategory] = useState<CategoryId>("overview");
   
   // Real Sui Wallet connection hooks
@@ -386,7 +405,7 @@ export default function Home() {
     setIsSubmitting(true);
     try {
       const totalVatAED = selected.reduce((sum, r) => sum + parseFloat(r.vat), 0);
-      const totalVatUSDC = (totalVatAED / 3.67).toFixed(2);
+      const totalVatUSDC = (totalVatAED / fxRate).toFixed(2);
       const totalVatBaseUnits = Math.floor(parseFloat(totalVatUSDC) * 1_000_000); // base units
       const instantPayout = (parseFloat(totalVatUSDC) * 0.8).toFixed(2);
 
@@ -427,7 +446,7 @@ export default function Home() {
           : r.walrusUrl.replace('walrus://blob/', '');
         return Array.from(new TextEncoder().encode(blobId));
       });
-      const vatAmounts = selected.map(r => Math.floor((parseFloat(r.vat) / 3.67) * 1_000_000));
+      const vatAmounts = selected.map(r => Math.floor((parseFloat(r.vat) / fxRate) * 1_000_000));
       const merchantNames = selected.map(r => Array.from(new TextEncoder().encode(r.storeName)));
       const totalPurchase = Math.floor(selected.reduce((sum, r) => sum + parseFloat(r.amount.replace(/,/g, '')) * 100, 0)); // AED cents
       const newClaimId = `CLAIM-${Date.now()}`;
@@ -539,10 +558,10 @@ export default function Home() {
       const vatAED = parseFloat(scannedBill.vatAED.replace(/,/g, ''));
       const netAED = grossAED - vatAED;
 
-      const vatUSDC = (vatAED / 3.67).toFixed(2);
+      const vatUSDC = (vatAED / fxRate).toFixed(2);
       const vatAmountBaseUnits = Math.floor(parseFloat(vatUSDC) * 1_000_000);
 
-      const netUSDC = (netAED / 3.67).toFixed(2);
+      const netUSDC = (netAED / fxRate).toFixed(2);
       const netAmountBaseUnits = Math.floor(parseFloat(netUSDC) * 1_000_000);
 
       const totalRequired = vatAmountBaseUnits + netAmountBaseUnits;
@@ -987,7 +1006,7 @@ export default function Home() {
                     <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                   </div>
                   <span className="bento-value">
-                    {(receipts.filter(r => !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / 3.67).toFixed(2)} USDC
+                    {(receipts.filter(r => !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / fxRate).toFixed(2)} USDC
                   </span>
                 </div>
               </div>
@@ -1028,7 +1047,7 @@ export default function Home() {
                     </span>
                   </div>
                   <span className="bento-value" style={{ color: "var(--color-cyber-gold)" }}>
-                    {(receipts.filter(r => r.selectedForClaim && !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / 3.67).toFixed(2)} USDC
+                    {(receipts.filter(r => r.selectedForClaim && !r.claimed).reduce((sum, r) => sum + parseFloat(r.vat), 0) / fxRate).toFixed(2)} USDC
                   </span>
                 </div>
               </div>
@@ -1404,20 +1423,20 @@ export default function Home() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px", fontSize: "12px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--color-sage)" }}>Merchant Net Pay (95%):</span>
-                    <span style={{ color: "#fff", fontWeight: "bold" }}>{((parseFloat(scannedBill.amountAED) - parseFloat(scannedBill.vatAED)) / 3.67).toFixed(2)} USDC</span>
+                    <span style={{ color: "#fff", fontWeight: "bold" }}>{((parseFloat(scannedBill.amountAED) - parseFloat(scannedBill.vatAED)) / fxRate).toFixed(2)} USDC</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--color-sage)" }}>Escrowed VAT (5%):</span>
-                    <span style={{ color: "#fff", fontWeight: "bold" }}>{(parseFloat(scannedBill.vatAED) / 3.67).toFixed(2)} USDC</span>
+                    <span style={{ color: "#fff", fontWeight: "bold" }}>{(parseFloat(scannedBill.vatAED) / fxRate).toFixed(2)} USDC</span>
                   </div>
                   <hr style={{ borderColor: "rgba(255,255,255,0.1)", margin: "4px 0" }} />
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--color-cyber-gold)", fontWeight: "bold" }}>Instant Refund (80%):</span>
-                    <span style={{ color: "#10B981", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / 3.67) * 0.8).toFixed(2)} USDC</span>
+                    <span style={{ color: "#10B981", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / fxRate) * 0.8).toFixed(2)} USDC</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--color-sage)" }}>Locked Exit Refund (20%):</span>
-                    <span style={{ color: "var(--color-cyber-gold)", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / 3.67) * 0.2).toFixed(2)} USDC</span>
+                    <span style={{ color: "var(--color-cyber-gold)", fontWeight: "bold" }}>{((parseFloat(scannedBill.vatAED) / fxRate) * 0.2).toFixed(2)} USDC</span>
                   </div>
                 </div>
               </div>

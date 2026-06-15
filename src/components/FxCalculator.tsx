@@ -27,9 +27,27 @@ export function FxCalculator({ usdcBalance }: FxCalculatorProps) {
   const [rates, setRates] = useState(BASE_RATES);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Set initial update date client-side
+  // Fetch real-time exchange rates on mount
   useEffect(() => {
     setLastUpdated(new Date());
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.rates) {
+          setRates(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(key => {
+              if (typeof data.rates[key] === 'number') {
+                updated[key] = { ...updated[key], rate: data.rates[key] };
+              }
+            });
+            return updated;
+          });
+          setLastUpdated(new Date());
+          console.log("FxCalculator initialized real-time rates from Open Exchange API");
+        }
+      })
+      .catch(err => console.warn("Failed to fetch rates, falling back to static pegs", err));
   }, []);
 
   // Simulate live rate updates with small variance

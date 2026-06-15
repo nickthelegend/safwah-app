@@ -856,6 +856,25 @@ export default function Home() {
     }
   };
 
+  if (!walletConnected) {
+    return (
+      <main className="phone-frame" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center", background: "#0c0c0e", height: "100%" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "24px" }}>
+          <div style={{ width: "80px", height: "80px", borderRadius: "24px", background: "linear-gradient(135deg, #FFF9E6 0%, #D4AF37 100%)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 32px rgba(212,175,55,0.25)" }}>
+            <span style={{ fontSize: "36px" }}>🌿</span>
+          </div>
+          <div>
+            <h1 style={{ fontFamily: "var(--font-space-grotesk)", fontSize: "28px", fontWeight: "bold", color: "#fff", marginBottom: "8px", background: "linear-gradient(to right, #fff, #D4AF37)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Safwah Tourist</h1>
+            <p style={{ color: "#9CA3AF", fontSize: "14px", maxWidth: "260px", lineHeight: "1.6" }}>Unified, gasless-escrow VAT refund system built on Sui. Connect your wallet to manage invoices and claim your refund.</p>
+          </div>
+        </div>
+        <div style={{ width: "100%", paddingBottom: "40px", display: "flex", justifyContent: "center" }}>
+          <WalletConnect />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="phone-frame">
       {/* Header section with wallet connection */}

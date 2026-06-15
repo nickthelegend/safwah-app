@@ -158,7 +158,7 @@ export default function Home() {
   // Load claims from MongoDB on mount
   useEffect(() => {
     if (!walletAddress) return;
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
     fetch(`${backendUrl}/api/claims/tourist/${walletAddress}`)
       .then(res => res.json())
       .then(data => {
@@ -188,7 +188,7 @@ export default function Home() {
   // Load receipts from MongoDB on mount
   useEffect(() => {
     if (!walletAddress) return;
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
     fetch(`${backendUrl}/api/receipts/tourist/${walletAddress}`)
       .then(res => res.json())
       .then(data => {
@@ -221,7 +221,7 @@ export default function Home() {
     // Persist latest claim to MongoDB
     const latestClaim = newClaims[0];
     if (latestClaim) {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
       try {
         await fetch(`${backendUrl}/api/claims`, {
           method: 'POST',
@@ -311,7 +311,7 @@ export default function Home() {
       );
       const found = updated.find(r => r.id === receiptId);
       if (found) {
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+        const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
         fetch(`${backendUrl}/api/receipts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -469,7 +469,7 @@ export default function Home() {
 
       // Mark selected receipts as claimed in MongoDB
       const selectedIds = selected.map(r => r.id);
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
       fetch(`${backendUrl}/api/receipts/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -631,7 +631,7 @@ export default function Home() {
       updateClaimsAndSave([newClaim, ...claims]);
 
       // Save new atomic receipt to MongoDB
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
       fetch(`${backendUrl}/api/receipts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -705,7 +705,7 @@ export default function Home() {
       setReceipts(prev => [newRec, ...prev]);
 
       // Save uploaded receipt to MongoDB
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';
       fetch(`${backendUrl}/api/receipts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

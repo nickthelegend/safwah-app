@@ -5,7 +5,7 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 // Set env
-import.meta.env.VITE_BACKEND_URL = 'http://localhost:3001';
+process.env.VITE_BACKEND_URL = 'http://localhost:3001';
 
 describe('executeSponsoredTransaction', () => {
   beforeEach(() => {

@@ -353,7 +353,19 @@ export default function Home() {
         jwt: zkSession?.jwt ?? undefined,
         fallback: () => signAndExecute({ transaction: tx }),
       });
-      toast.success(`100 Test USDC successfully minted!\nTransaction digest: ${result.digest}`);
+      toast.success(
+        <div>
+          <p className="font-bold">100 Test USDC successfully minted!</p>
+          <a
+            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"
+          >
+            View on Sui Explorer ↗
+          </a>
+        </div>
+      );
     } catch (err: any) {
       toast.error(`Faucet call failed: ${err.message || err}`);
     }
@@ -478,7 +490,21 @@ export default function Home() {
 
 
       setActiveCategory("claims");
-      toast.success(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
+      toast.success(
+        <div>
+          <p className="font-bold">Refund claim {claimObjectId} submitted successfully!</p>
+          <p className="text-xs text-zinc-300 mt-1">80% Instant Payout ({instantPayout} USDC) has been sent to your SUI Wallet.</p>
+          <p className="text-xs text-zinc-300">20% will be unlocked at airport customs exit inspection!</p>
+          <a
+            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"
+          >
+            View on Sui Explorer ↗
+          </a>
+        </div>
+      );
     } catch (err: any) {
       toast.error(`Claim submission failed: ${err.message || err}`);
     } finally {
@@ -651,7 +677,22 @@ export default function Home() {
       setScannedBill(null);
       setActiveCategory("claims");
 
-      toast.success(`Payment & Claim Refund processed atomically!\n\n95% Net purchase paid to merchant.\n80% instant VAT refund (${instantPayout} USDC) received in your wallet.\nInvoice NFT minted successfully!\nTransaction Hash: ${result.digest}`);
+      toast.success(
+        <div>
+          <p className="font-bold">Payment & Claim Refund processed atomically!</p>
+          <p className="text-xs text-zinc-300 mt-1">95% Net purchase paid to merchant.</p>
+          <p className="text-xs text-zinc-300">80% instant VAT refund ({instantPayout} USDC) received in your wallet.</p>
+          <p className="text-xs text-zinc-300">Invoice NFT minted successfully!</p>
+          <a
+            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"
+          >
+            View on Sui Explorer ↗
+          </a>
+        </div>
+      );
     } catch (err: any) {
       toast.error(`Transaction failed: ${err.message || err}`);
     } finally {

@@ -228,6 +228,28 @@ export default function Home() {
       .catch(err => console.warn("Failed to load receipts from MongoDB", err));
   }, [walletAddress]);
 
+  // Load digital bill from URL query param if present
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const billParam = urlParams.get('bill');
+      if (billParam) {
+        try {
+          const decoded = decodeURIComponent(escape(atob(billParam)));
+          const payload = JSON.parse(decoded);
+          if (payload.type === "safwah_bill_v1") {
+            setScannedBill(payload);
+            // Clear parameter from URL to keep address bar clean
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+            toast.success("Loaded digital bill details from link!");
+          }
+        } catch (e) {
+          console.error("Failed to parse bill from URL parameter", e);
+        }
+      }
+    }
+  }, []);
 
   // Save claims to MongoDB helper
   const updateClaimsAndSave = async (newClaims: Claim[]) => {
@@ -560,7 +582,21 @@ export default function Home() {
   const handleScanBill = (result: string) => {
     if (!result) return;
     try {
-      const payload = JSON.parse(result);
+      let rawJson = result.trim();
+      if (result.includes('?bill=')) {
+        const urlParams = new URLSearchParams(result.split('?')[1]);
+        const billBase64 = urlParams.get('bill');
+        if (billBase64) {
+          rawJson = decodeURIComponent(escape(atob(billBase64)));
+        }
+      } else if (!rawJson.startsWith('{')) {
+        // Try base64 decoding directly
+        try {
+          rawJson = decodeURIComponent(escape(atob(rawJson)));
+        } catch (e) {}
+      }
+
+      const payload = JSON.parse(rawJson);
       if (payload.type === "safwah_bill_v1") {
         setScannedBill(payload);
         setIsScannerOpen(false);
@@ -717,6 +753,23 @@ export default function Home() {
           claimed: newRec.claimed
         })
       }).catch(err => console.error("Failed to save atomic receipt to MongoDB", err));
+
+      // Update invoice status to Settled (USDC) in MongoDB
+      fetch(`${backendUrl}/api/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceNumber: scannedBill.invoiceNumber,
+          merchantAddress: scannedBill.merchantAddress,
+          customerAddress: walletAddress,
+          businessName: scannedBill.businessName,
+          amountAED: scannedBill.amountAED,
+          vatAED: scannedBill.vatAED,
+          status: "Settled (USDC)",
+          walrusBlobId: scannedBill.walrusBlobId,
+          walrusUrl: scannedBill.walrusUrl
+        })
+      }).catch(err => console.error("Failed to update invoice status on MongoDB", err));
 
       setScannedBill(null);
       setActiveCategory("claims");
@@ -1479,8 +1532,13 @@ export default function Home() {
                 <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setScannedBill(null)}>
                   Cancel
                 </button>
-                <button className="btn-primary" style={{ flex: 2 }} onClick={handleExecuteDigitalPay} disabled={isSubmitting}>
-                  {isSubmitting ? "Executing PTB..." : "Pay & Claim Refund"}
+                <button 
+                  className="btn-primary" 
+                  style={{ flex: 2 }} 
+                  onClick={!walletConnected ? () => { toast.error("Please login using Google zkLogin or connect SUI wallet at the top right first!"); } : handleExecuteDigitalPay} 
+                  disabled={isSubmitting}
+                >
+                  {!walletConnected ? "Connect Wallet to Pay" : (isSubmitting ? "Executing PTB..." : "Pay & Claim Refund")}
                 </button>
               </div>
             </div>

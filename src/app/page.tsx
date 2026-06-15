@@ -412,7 +412,7 @@ export default function Home() {
     try {
       const { OnrampWebSDK } = require('@onramp.money/onramp-web-sdk');
       const onrampSDK = new OnrampWebSDK({
-        appId: 12345,
+        appId: Number(process.env.VITE_ONRAMP_APP_ID || 12345),
         walletAddress: walletAddress,
         coinCode: "USDC",
         network: "sui",

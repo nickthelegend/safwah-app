@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
     VITE_BACKEND_URL: process.env.VITE_BACKEND_URL || '',
     VITE_SAFWAH_ADMIN_ID: process.env.VITE_SAFWAH_ADMIN_ID || '',
     VITE_SAFWAH_TREASURY_ID: process.env.VITE_SAFWAH_TREASURY_ID || '',
+    VITE_ONRAMP_APP_ID: process.env.VITE_ONRAMP_APP_ID || '',
   }
 };
 

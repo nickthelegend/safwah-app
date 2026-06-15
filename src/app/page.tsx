@@ -13,7 +13,6 @@ import { WithdrawalModal } from "../components/WithdrawalModal";
 import { ClaimTracker } from "../components/ClaimTracker";
 
 
-import { FxCalculator } from "../components/FxCalculator";
 import { TravelPortfolio } from "../components/TravelPortfolio";
 import { startEventListener } from "../lib/events";
 import { Scanner } from "@yudiel/react-qr-scanner";
@@ -324,6 +323,21 @@ export default function Home() {
   const settlementNFTCount = settlementNfts.length || claims.filter(c => c.nftMinted).length;
   const invoiceNFTCount = invoiceNfts.length || receipts.length;
   const merchantNames = receipts.map(r => r.storeName);
+
+  const pendingExitRefund = claims.reduce((sum, c) => {
+    if (c.status === "80% Paid (Exit Pending)") {
+      const numericVat = parseFloat(c.totalVat.replace(/[^0-9.]/g, '')) || 0;
+      return sum + (numericVat * 0.2);
+    }
+    return sum;
+  }, 0);
+
+  const activeClaim = claims.find(c => c.status === "80% Paid (Exit Pending)") || claims[0] || null;
+  const activeClaimId = activeClaim 
+    ? (activeClaim.id.length > 18 
+        ? `${activeClaim.id.slice(0, 8)}...${activeClaim.id.slice(-6)}` 
+        : activeClaim.id) 
+    : "None";
 
   // Map selectedClaimForQr to ClaimQRCode component's expected props format
   const qrClaimData = selectedClaimForQr ? {
@@ -889,53 +903,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Category selector */}
-      <section className="category-scroll-container" ref={scrollContainerRef}>
-        <div className="category-btn-wrapper" id="cat-btn-overview">
-          {activeCategory === "overview" ? (
-            <button className="category-btn-active" onClick={() => setActiveCategory("overview")}>
-              <div className="active-circle">📊</div>
-              <span className="active-label">Overview</span>
-            </button>
-          ) : (
-            <button className="category-btn-inactive" onClick={() => setActiveCategory("overview")}>📊</button>
-          )}
-        </div>
-
-        <div className="category-btn-wrapper" id="cat-btn-receipts">
-          {activeCategory === "receipts" ? (
-            <button className="category-btn-active" onClick={() => setActiveCategory("receipts")}>
-              <div className="active-circle">📄</div>
-              <span className="active-label">Receipts</span>
-            </button>
-          ) : (
-            <button className="category-btn-inactive" onClick={() => setActiveCategory("receipts")}>📄</button>
-          )}
-        </div>
-
-        <div className="category-btn-wrapper" id="cat-btn-claims">
-          {activeCategory === "claims" ? (
-            <button className="category-btn-active" onClick={() => setActiveCategory("claims")}>
-              <div className="active-circle">💸</div>
-              <span className="active-label">Claims</span>
-            </button>
-          ) : (
-            <button className="category-btn-inactive" onClick={() => setActiveCategory("claims")}>💸</button>
-          )}
-        </div>
-
-        <div className="category-btn-wrapper" id="cat-btn-nfts">
-          {activeCategory === "nfts" ? (
-            <button className="category-btn-active" onClick={() => setActiveCategory("nfts")}>
-              <div className="active-circle">🛡️</div>
-              <span className="active-label">Sui NFTs</span>
-            </button>
-          ) : (
-            <button className="category-btn-inactive" onClick={() => setActiveCategory("nfts")}>🛡️</button>
-          )}
-        </div>
-      </section>
-
       {/* Main card panel - simulates view transition */}
       <section key={activeCategory} className="hero-card fade-transition">
         <div className="decorative-blob" />
@@ -943,37 +910,76 @@ export default function Home() {
         {/* Overview Tab Content */}
         {activeCategory === "overview" && (
           <>
-            <div className="hero-header">
-              <div className="hero-icon-holder">
-                <span>💸</span>
+            <div className="hero-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+              <div>
+                <span className="label-caps" style={{ color: "var(--color-cyber-gold)", letterSpacing: "1.5px" }}>USDC Balance</span>
+                <h2 style={{ fontSize: "36px", fontWeight: "800", color: "#fff", marginTop: "4px" }}>
+                  {walletConnected ? `${usdcDisplay} USDC` : "0.00 USDC"}
+                </h2>
               </div>
-              <div className="hero-title-area">
-                <span className="label-caps">ACTIVE RECLAIM VITAL</span>
-                <h2>Dubai Mall Shopping Claim</h2>
-              </div>
+              {walletConnected && usdcBalanceVal > 0 && (
+                <button 
+                  onClick={() => setIsWithdrawOpen(true)}
+                  style={{
+                    fontSize: "12px",
+                    background: "rgba(212,175,55,0.2)",
+                    color: "var(--color-cyber-gold)",
+                    border: "1px solid rgba(212,175,55,0.4)",
+                    padding: "8px 16px",
+                    borderRadius: "12px",
+                    cursor: "pointer",
+                    height: "fit-content",
+                    fontWeight: "bold"
+                  }}
+                >
+                  Withdraw
+                </button>
+              )}
             </div>
-            <p className="hero-card-desc">
-              Your claim is processed! 80% split has been paid. Verify exit at airport customs to claim the remaining 20%.
+            <p className="hero-card-desc" style={{ marginTop: "12px", color: "var(--color-sage)" }}>
+              {activeClaim 
+                ? "Your claim is processed! 80% split has been paid. Verify exit at airport customs to claim the remaining 20%."
+                : "Connect your wallet, scan invoices, and bundle them to claim your instant VAT refund."}
             </p>
 
-            {claims.length > 0 && (
+            {activeClaim && (
               <div style={{ marginBottom: "16px" }}>
-                <ClaimTracker claimObjectId={claims[0].id} />
+                <ClaimTracker claimObjectId={activeClaim.id} />
               </div>
             )}
             <div className="bento-grid" style={{ marginBottom: "12px" }}>
               <div className="bento-metric-card">
-                <span className="bento-metric-label">USDC BALANCE</span>
+                <span className="bento-metric-label">SUI BALANCE</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <span>💧</span>
+                  </div>
+                  <span className="bento-value">{walletConnected ? `${suiDisplay} SUI` : "0.00 SUI"}</span>
+                </div>
+              </div>
+              <div className="bento-metric-card">
+                <span className="bento-metric-label">REFUND DUE</span>
+                <div className="bento-content">
+                  <div className="bento-icon-circle">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </div>
+                  <span className="bento-value">{walletConnected ? `${pendingExitRefund.toFixed(2)} USDC` : "0.00 USDC"}</span>
+                </div>
+              </div>
+            </div>
+            <div className="bento-grid">
+              <div className="bento-metric-card" style={{ gridColumn: "span 2" }}>
+                <span className="bento-metric-label">ACTIVE CLAIM ID</span>
                 <div className="bento-content" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
                   <div style={{ display: "flex", alignItems: "center" }}>
                     <div className="bento-icon-circle">
-                      <span>💵</span>
+                      <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                     </div>
-                    <span className="bento-value">{walletConnected ? `${usdcDisplay} USDC` : "0.00 USDC"}</span>
+                    <span className="bento-value" style={{ fontSize: "14px" }}>{activeClaimId}</span>
                   </div>
-                  {walletConnected && usdcBalanceVal > 0 && (
+                  {activeClaim && (
                     <button 
-                      onClick={() => setIsWithdrawOpen(true)}
+                      onClick={() => setSelectedClaimForQr(activeClaim)}
                       style={{
                         fontSize: "10px",
                         background: "rgba(212,175,55,0.2)",
@@ -984,38 +990,9 @@ export default function Home() {
                         cursor: "pointer"
                       }}
                     >
-                      Withdraw
+                      Show QR
                     </button>
                   )}
-                </div>
-              </div>
-              <div className="bento-metric-card">
-                <span className="bento-metric-label">SUI BALANCE</span>
-                <div className="bento-content">
-                  <div className="bento-icon-circle">
-                    <span>💧</span>
-                  </div>
-                  <span className="bento-value">{walletConnected ? `${suiDisplay} SUI` : "0.00 SUI"}</span>
-                </div>
-              </div>
-            </div>
-            <div className="bento-grid">
-              <div className="bento-metric-card">
-                <span className="bento-metric-label">CLAIM ID</span>
-                <div className="bento-content">
-                  <div className="bento-icon-circle">
-                    <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                  </div>
-                  <span className="bento-value">CLM-8902</span>
-                </div>
-              </div>
-              <div className="bento-metric-card">
-                <span className="bento-metric-label">REFUND DUE</span>
-                <div className="bento-content">
-                  <div className="bento-icon-circle">
-                    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                  </div>
-                  <span className="bento-value">148.20 USDC</span>
                 </div>
               </div>
             </div>
@@ -1037,14 +1014,15 @@ export default function Home() {
                 </button>
               </div>
             )}
-            <div className="hero-alert-box" style={{ marginBottom: "16px" }}>
-              <div className="hero-alert-text">
-                ✈️ Scan your Claim QR code at airport exit validation to receive the final 20% (29.64 USDC).
+            {activeClaim && (
+              <div className="hero-alert-box" style={{ marginBottom: "16px", marginTop: "16px" }}>
+                <div className="hero-alert-text">
+                  ✈️ Scan your Claim QR code at airport exit validation to receive the final 20% ({(parseFloat(activeClaim.totalVat.replace(/[^0-9.]/g, '')) * 0.2).toFixed(2)} USDC).
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
-              <FxCalculator usdcBalance={usdcBalanceVal} />
               <TravelPortfolio
                 totalRefunded={totalRefundedVal}
                 settlementNFTCount={settlementNFTCount}
@@ -1320,7 +1298,7 @@ export default function Home() {
       {/* Floating navigation bar */}
       <div className="nav-wrapper">
         <nav className="nav-pill-bar">
-          <button className={`nav-item-btn ${activeCategory === "overview" ? "active" : "inactive"}`} onClick={() => setActiveCategory("overview")}>
+          <button className={`nav-item-btn ${activeCategory === "overview" ? "active" : "inactive"}`} onClick={() => setActiveCategory("overview")} title="Overview">
             <svg viewBox="0 0 24 24" stroke="currentColor">
               <rect x="3" y="3" width="7" height="9" rx="1" />
               <rect x="14" y="3" width="7" height="5" rx="1" />
@@ -1329,9 +1307,15 @@ export default function Home() {
             </svg>
           </button>
 
+          <button className={`nav-item-btn ${activeCategory === "receipts" ? "active" : "inactive"}`} onClick={() => setActiveCategory("receipts")} title="Receipts">
+            <svg viewBox="0 0 24 24" stroke="currentColor">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </button>
+
           {/* FAB: Center QR Scanner */}
           <div className="fab-container">
-            <button className={`fab-btn ${isScannerOpen ? "open" : ""}`} onClick={() => setIsScannerOpen(true)}>
+            <button className={`fab-btn ${isScannerOpen ? "open" : ""}`} onClick={() => setIsScannerOpen(true)} title="Scan QR Code">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: "20px", height: "20px" }}>
                 <rect width="5" height="5" x="3" y="3" rx="1" />
                 <rect width="5" height="5" x="16" y="3" rx="1" />
@@ -1345,9 +1329,16 @@ export default function Home() {
             </button>
           </div>
 
-          <button className={`nav-item-btn ${activeCategory === "receipts" ? "active" : "inactive"}`} onClick={() => setActiveCategory("receipts")}>
-            <svg viewBox="0 0 24 24" stroke="currentColor">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          <button className={`nav-item-btn ${activeCategory === "claims" ? "active" : "inactive"}`} onClick={() => setActiveCategory("claims")} title="Claims">
+            <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2">
+              <line x1="12" y1="1" x2="12" y2="23"></line>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+          </button>
+
+          <button className={`nav-item-btn ${activeCategory === "nfts" ? "active" : "inactive"}`} onClick={() => setActiveCategory("nfts")} title="Sui NFTs">
+            <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
           </button>
         </nav>

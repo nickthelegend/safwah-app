@@ -48,20 +48,6 @@ const WITHDRAWAL_METHODS = [
       { key: 'network', label: 'Network', placeholder: 'Ethereum, Sui, Solana...' },
     ],
   },
-  {
-    id: 3,
-    key: 'remittance',
-    label: 'Send to Family',
-    icon: Globe,
-    description: 'Remittance to 100+ countries',
-    eta: '< 1 hour',
-    color: '#8B5CF6',
-    fields: [
-      { key: 'phone', label: 'Recipient Phone', placeholder: '+91 98765 43210' },
-      { key: 'country', label: 'Country', placeholder: 'India' },
-      { key: 'recipientName', label: 'Recipient Name', placeholder: 'Priya Sharma' },
-    ],
-  },
 ];
 
 const FEE_BPS = 500;  // 5%

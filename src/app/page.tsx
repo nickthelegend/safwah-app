@@ -357,7 +357,7 @@ export default function Home() {
         <div>
           <p className="font-bold">100 Test USDC successfully minted!</p>
           <a
-            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            href={`https://suiscan.xyz/testnet/tx/${result.digest}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"
@@ -496,7 +496,7 @@ export default function Home() {
           <p className="text-xs text-zinc-300 mt-1">80% Instant Payout ({instantPayout} USDC) has been sent to your SUI Wallet.</p>
           <p className="text-xs text-zinc-300">20% will be unlocked at airport customs exit inspection!</p>
           <a
-            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            href={`https://suiscan.xyz/testnet/tx/${result.digest}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"
@@ -684,7 +684,7 @@ export default function Home() {
           <p className="text-xs text-zinc-300">80% instant VAT refund ({instantPayout} USDC) received in your wallet.</p>
           <p className="text-xs text-zinc-300">Invoice NFT minted successfully!</p>
           <a
-            href={`https://suiscan.xyz/txblock/${result.digest}?network=testnet`}
+            href={`https://suiscan.xyz/testnet/tx/${result.digest}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-500 hover:text-blue-700 underline text-xs font-semibold block mt-1"

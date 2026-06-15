@@ -125,6 +125,8 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedClaimForQr, setSelectedClaimForQr] = useState<Claim | null>(null);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
 
   // Digital pay & scanner states
   const [isScannerOpen, setIsScannerOpen] = useState(false);
@@ -153,24 +155,95 @@ export default function Home() {
     }
   }, { enabled: walletConnected });
 
-  // Load claims from localStorage on mount
+  // Load claims from MongoDB on mount
   useEffect(() => {
     if (!walletAddress) return;
-    const savedClaims = localStorage.getItem(`safwah_claims_${walletAddress}`);
-    if (savedClaims) {
-      try {
-        setClaims(JSON.parse(savedClaims));
-      } catch (e) {}
-    }
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    fetch(`${backendUrl}/api/claims/tourist/${walletAddress}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setClaims(data);
+        } else {
+          // Fallback to local storage
+          const savedClaims = localStorage.getItem(`safwah_claims_${walletAddress}`);
+          if (savedClaims) {
+            try {
+              setClaims(JSON.parse(savedClaims));
+            } catch (e) {}
+          }
+        }
+      })
+      .catch(err => {
+        console.warn("Failed to fetch claims from MongoDB, falling back to localStorage", err);
+        const savedClaims = localStorage.getItem(`safwah_claims_${walletAddress}`);
+        if (savedClaims) {
+          try {
+            setClaims(JSON.parse(savedClaims));
+          } catch (e) {}
+        }
+      });
   }, [walletAddress]);
 
-  // Save claims to localStorage helper
-  const updateClaimsAndSave = (newClaims: Claim[]) => {
+  // Load receipts from MongoDB on mount
+  useEffect(() => {
+    if (!walletAddress) return;
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    fetch(`${backendUrl}/api/receipts/tourist/${walletAddress}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const mapped = data.map((item: any) => ({
+            id: item.receiptId,
+            storeName: item.storeName,
+            amount: item.amount,
+            vat: item.vat,
+            date: item.date,
+            walrusUrl: item.walrusUrl,
+            selectedForClaim: item.selectedForClaim,
+            claimed: item.claimed
+          }));
+          setReceipts(mapped);
+        }
+      })
+      .catch(err => console.warn("Failed to load receipts from MongoDB", err));
+  }, [walletAddress]);
+
+
+  // Save claims to MongoDB helper
+  const updateClaimsAndSave = async (newClaims: Claim[]) => {
     setClaims(newClaims);
-    if (walletAddress) {
-      localStorage.setItem(`safwah_claims_${walletAddress}`, JSON.stringify(newClaims));
+    if (!walletAddress) return;
+    
+    // Backup to localStorage
+    localStorage.setItem(`safwah_claims_${walletAddress}`, JSON.stringify(newClaims));
+
+    // Persist latest claim to MongoDB
+    const latestClaim = newClaims[0];
+    if (latestClaim) {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      try {
+        await fetch(`${backendUrl}/api/claims`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            claimObjectId: latestClaim.id,
+            title: latestClaim.title,
+            touristAddress: walletAddress,
+            receiptCount: latestClaim.receiptCount,
+            totalVat: latestClaim.totalVat,
+            payoutAmount: latestClaim.payoutAmount,
+            status: latestClaim.status,
+            nftMinted: latestClaim.nftMinted,
+            date: latestClaim.date
+          })
+        });
+      } catch (err) {
+        console.error("Failed to save claim to MongoDB", err);
+      }
     }
   };
+
 
   // Map on-chain NFTs
   const invoiceNfts = (ownedInvoiceNFTs?.data || []).map((obj: any) => {
@@ -232,10 +305,33 @@ export default function Home() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const toggleReceiptSelect = (receiptId: string) => {
-    setReceipts(prev => prev.map(rec => 
-      rec.id === receiptId ? { ...rec, selectedForClaim: !rec.selectedForClaim } : rec
-    ));
+    setReceipts(prev => {
+      const updated = prev.map(rec => 
+        rec.id === receiptId ? { ...rec, selectedForClaim: !rec.selectedForClaim } : rec
+      );
+      const found = updated.find(r => r.id === receiptId);
+      if (found) {
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+        fetch(`${backendUrl}/api/receipts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiptId: found.id,
+            touristAddress: walletAddress,
+            storeName: found.storeName,
+            amount: found.amount,
+            vat: found.vat,
+            date: found.date,
+            walrusUrl: found.walrusUrl,
+            selectedForClaim: found.selectedForClaim,
+            claimed: found.claimed
+          })
+        }).catch(err => console.error("Failed to update receipt selection on MongoDB", err));
+      }
+      return updated;
+    });
   };
+
 
   // Faucet handler
   const handleGetTestUsdc = async () => {
@@ -370,6 +466,16 @@ export default function Home() {
       setReceipts(prev => prev.map(rec => 
         rec.selectedForClaim ? { ...rec, claimed: true, selectedForClaim: false } : rec
       ));
+
+      // Mark selected receipts as claimed in MongoDB
+      const selectedIds = selected.map(r => r.id);
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      fetch(`${backendUrl}/api/receipts/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiptIds: selectedIds })
+      }).catch(err => console.error("Failed to mark receipts as claimed on MongoDB", err));
+
 
       setActiveCategory("claims");
       toast.success(`Refund claim ${claimObjectId} submitted successfully!\n\n80% Instant Payout (${instantPayout} USDC) has been sent to your SUI Wallet.\nTransaction Hash: ${result.digest}\n\n20% will be unlocked at airport customs exit inspection!`);
@@ -523,6 +629,25 @@ export default function Home() {
 
       setReceipts(prev => [newRec, ...prev]);
       updateClaimsAndSave([newClaim, ...claims]);
+
+      // Save new atomic receipt to MongoDB
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      fetch(`${backendUrl}/api/receipts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptId: newRec.id,
+          touristAddress: walletAddress,
+          storeName: newRec.storeName,
+          amount: newRec.amount,
+          vat: newRec.vat,
+          date: newRec.date,
+          walrusUrl: newRec.walrusUrl,
+          selectedForClaim: newRec.selectedForClaim,
+          claimed: newRec.claimed
+        })
+      }).catch(err => console.error("Failed to save atomic receipt to MongoDB", err));
+
       setScannedBill(null);
       setActiveCategory("claims");
 
@@ -538,22 +663,33 @@ export default function Home() {
   const handleUploadReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formStoreName || !formAmount) return;
-
+ 
     setIsUploading(true);
     try {
       const calculatedVat = (parseFloat(formAmount.replace(/,/g, '')) * 0.05).toFixed(2); // 5% VAT UAE
+ 
+      let fileBase64 = "";
+      if (selectedFile) {
+        fileBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(selectedFile);
+        });
+      }
 
-      // Create a mock Blob representation of receipt data to upload to Walrus
+      // Create a Blob representation of receipt data to upload to Walrus
       const receiptDataJson = JSON.stringify({
         storeName: formStoreName,
         amountAED: formAmount,
         vatAED: calculatedVat,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        receiptImage: fileBase64 || null
       });
       const blob = new Blob([receiptDataJson], { type: "application/json" });
       
       // Upload to real Walrus testnet nodes
       const walrusResult = await uploadToWalrus(blob);
+
 
       const newRec: Receipt = {
         id: `rec-${Date.now()}`,
@@ -567,7 +703,27 @@ export default function Home() {
       };
 
       setReceipts(prev => [newRec, ...prev]);
+
+      // Save uploaded receipt to MongoDB
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      fetch(`${backendUrl}/api/receipts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptId: newRec.id,
+          touristAddress: walletAddress,
+          storeName: newRec.storeName,
+          amount: newRec.amount,
+          vat: newRec.vat,
+          date: newRec.date,
+          walrusUrl: newRec.walrusUrl,
+          selectedForClaim: newRec.selectedForClaim,
+          claimed: newRec.claimed
+        })
+      }).catch(err => console.error("Failed to save uploaded receipt to MongoDB", err));
+
       setIsModalOpen(false);
+      setSelectedFile(null); // Clear selected file
       setActiveCategory("receipts");
       toast.success(`AI Scan Complete!\nStore: ${newRec.storeName}\nVAT Extracted: ${newRec.vat}\nUploaded to Decentralized Storage (Walrus Blob: ${walrusResult.blobId.slice(0, 8)}...)!`);
     } catch (err: any) {
@@ -1059,11 +1215,32 @@ export default function Home() {
             </div>
             
             <form onSubmit={handleUploadReceipt} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div className="form-group" style={{ border: "2px dashed rgba(212, 175, 55, 0.2)", borderRadius: "16px", padding: "24px", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", backgroundColor: "rgba(0,0,0,0.2)" }}>
+              <div className="form-group" style={{ border: "2px dashed rgba(212, 175, 55, 0.2)", borderRadius: "16px", padding: "24px", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", backgroundColor: "rgba(0,0,0,0.2)", cursor: "pointer", position: "relative" }}>
                 <span style={{ fontSize: "32px" }}>📸</span>
-                <span style={{ fontSize: "14px", fontWeight: "bold", color: "#fff" }}>Upload Invoice Photo / PDF</span>
+                <span style={{ fontSize: "14px", fontWeight: "bold", color: "#fff" }}>
+                  {selectedFile ? selectedFile.name : "Upload Invoice Photo / PDF"}
+                </span>
                 <span style={{ fontSize: "10px", color: "var(--color-sage)" }}>Max 5MB • Automatically scans & hashes to Walrus</span>
+                <input 
+                  type="file" 
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setSelectedFile(e.target.files[0]);
+                    }
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                    opacity: 0,
+                    cursor: "pointer"
+                  }}
+                />
               </div>
+
 
               <div className="form-group">
                 <label>Store Name</label>

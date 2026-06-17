@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient, useSuiClientQuery } from "@mysten/dapp-kit";
+import { useSuiClient, useSuiClientQuery } from "@mysten/dapp-kit";
+import { useDynamicWallet } from "../hooks/useDynamicWallet";
 import { Transaction } from "@mysten/sui/transactions";
 import WalletConnect from "../components/WalletConnect";
 import { uploadToWalrus } from "../lib/walrus";
@@ -75,12 +76,11 @@ export default function Home() {
   const fxRate = useFxRate();
   const [activeCategory, setActiveCategory] = useState<CategoryId>("overview");
   
-  // Real Sui Wallet connection hooks
-  const currentAccount = useCurrentAccount();
+  // Real Sui Wallet connection hooks via Dynamic
+  const { currentAccount, mutateAsync: signAndExecute } = useDynamicWallet();
 
   const walletAddress = currentAccount?.address || "";
   const walletConnected = !!walletAddress;
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const suiClient = useSuiClient();
 
   // Fetch real USDC balance

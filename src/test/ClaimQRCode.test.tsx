@@ -5,8 +5,10 @@ import { vi, describe, test, expect } from 'vitest';
 import '@testing-library/jest-dom';
 
 // Mock Sui kit and react-qr-code
-vi.mock('@mysten/dapp-kit', () => ({
-  useCurrentAccount: () => ({ address: '0x1234567890123456789012345678901234567890' }),
+vi.mock('../hooks/useDynamicWallet', () => ({
+  useDynamicWallet: () => ({
+    currentAccount: { address: '0x1234567890123456789012345678901234567890' },
+  }),
 }));
 
 vi.mock('react-qr-code', () => {

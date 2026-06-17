@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { useSuiClient, useSuiClientQuery } from "@mysten/dapp-kit";
 import { useDynamicWallet } from "../hooks/useDynamicWallet";
+import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
 import { Transaction } from "@mysten/sui/transactions";
 import WalletConnect from "../components/WalletConnect";
 import { uploadToWalrus } from "../lib/walrus";
@@ -77,6 +78,7 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState<CategoryId>("overview");
   
   // Real Sui Wallet connection hooks via Dynamic
+  const { sdkHasLoaded, user, primaryWallet } = useDynamicContext();
   const { currentAccount, mutateAsync: signAndExecute } = useDynamicWallet();
 
   const walletAddress = currentAccount?.address || "";
@@ -882,8 +884,16 @@ export default function Home() {
             <p style={{ color: "#9CA3AF", fontSize: "14px", maxWidth: "260px", lineHeight: "1.6" }}>Unified, gasless-escrow VAT refund system built on Sui. Connect your wallet to manage invoices and claim your refund.</p>
           </div>
         </div>
-        <div style={{ width: "100%", paddingBottom: "40px", display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "100%", paddingBottom: "40px", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
           <WalletConnect />
+          {/* Diagnostics Box */}
+          <div style={{ marginTop: "16px", padding: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", fontSize: "11px", color: "#8E8E93", textAlign: "left", width: "100%", maxWidth: "280px", fontFamily: "monospace", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ fontWeight: "bold", color: "#FFF", marginBottom: "4px" }}>🔧 Connection Diagnostics:</div>
+            <div>• SDK Loaded: {sdkHasLoaded ? "✅ Yes" : "❌ No"}</div>
+            <div>• Profile Auth: {user ? `✅ Logged In` : "❌ Disconnected"}</div>
+            <div>• Primary Wallet: {primaryWallet ? `✅ Active (${primaryWallet.connector?.name})` : "❌ None"}</div>
+            <div>• Chain/Address: {primaryWallet ? `${primaryWallet.chain}: ${primaryWallet.address.slice(0, 6)}...${primaryWallet.address.slice(-4)}` : "None"}</div>
+          </div>
         </div>
       </main>
     );

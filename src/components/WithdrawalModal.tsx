@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, CreditCard, Building2, Bitcoin, Globe, ArrowRight, Info, CheckCircle2 } from 'lucide-react';
-import { useSuiClient } from '@mysten/dapp-kit';
-import { useDynamicWallet } from '../hooks/useDynamicWallet';
+import { useSignAndExecuteTransaction, useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { CONTRACTS } from '../lib/contracts';
 import { toast } from 'sonner';
@@ -67,8 +66,9 @@ export function WithdrawalModal({ isOpen, onClose, availableBalance }: Withdrawa
   const [isProcessing, setIsProcessing] = useState(false);
   const [txDigest, setTxDigest] = useState('');
 
-  const { currentAccount: account, mutateAsync: signAndExecute } = useDynamicWallet();
+  const account = useCurrentAccount();
   const suiClient = useSuiClient();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
 
   const amountUsdc = parseFloat(amount) || 0;

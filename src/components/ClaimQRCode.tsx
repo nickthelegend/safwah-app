@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import QRCode from 'react-qr-code';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download, Share2, Shield, Clock, CheckCircle2 } from 'lucide-react';
-import { useDynamicWallet } from '../hooks/useDynamicWallet';
+import { useCurrentAccount } from '@mysten/dapp-kit';
 
 interface ClaimQRPayload {
   version: string;          // "safwah_v1"
@@ -40,7 +40,7 @@ const STATUS_MAP = {
 };
 
 export function ClaimQRCode({ isOpen, onClose, claim }: ClaimQRCodeProps) {
-  const { currentAccount: account } = useDynamicWallet();
+  const account = useCurrentAccount();
   const [isDownloading, setIsDownloading] = useState(false);
 
   if (!claim) return null;

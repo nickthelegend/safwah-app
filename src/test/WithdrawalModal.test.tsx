@@ -5,14 +5,9 @@ import { vi, describe, test, expect } from 'vitest';
 import '@testing-library/jest-dom';
 
 // Mock Sui kit and react components
-vi.mock('../hooks/useDynamicWallet', () => ({
-  useDynamicWallet: () => ({
-    currentAccount: { address: '0x1234567890123456789012345678901234567890' },
-    mutateAsync: vi.fn(),
-  }),
-}));
-
 vi.mock('@mysten/dapp-kit', () => ({
+  useSignAndExecuteTransaction: () => ({ mutateAsync: vi.fn() }),
+  useCurrentAccount: () => ({ address: '0x1234567890123456789012345678901234567890' }),
   useSuiClient: () => ({ getCoins: vi.fn() }),
 }));
 
